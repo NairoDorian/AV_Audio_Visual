@@ -49,7 +49,16 @@ pub struct AudioStatus {
     pub running: bool,
     pub fft_size: u32,
     pub hop_samples: u32,
-    pub bar_count: u32,
+    /// Output bins per frame.
+    pub output_bins: u32,
+    pub layers: u32,
+    pub window_samples: u32,
+    /// Layers run one per core.
+    pub parallel: bool,
+    /// Loudest output bin of the newest frame.
+    pub peak_hz: f32,
+    /// Spectral features of the newest frame, when enabled.
+    pub features: Option<Features>,
     pub generation: u32,
     pub frames: u64,
     pub dsp_us_avg: f32,
@@ -63,6 +72,35 @@ pub struct AudioStatus {
     pub clock: &'static str,
     /// `running`, `finished`, `failed` (device lost) or `stopped`.
     pub capture: &'static str,
+}
+
+/// Spectral features (FFT CHOP "Spectral Features").
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Features {
+    pub centroid_hz: f32,
+    pub rolloff_hz: f32,
+    pub flatness: f32,
+    pub flux: f32,
+    pub rms_db: f32,
+    pub bass_db: f32,
+    pub mid_db: f32,
+    pub high_db: f32,
+}
+
+impl From<[f32; 8]> for Features {
+    fn from(f: [f32; 8]) -> Self {
+        Self {
+            centroid_hz: f[0],
+            rolloff_hz: f[1],
+            flatness: f[2],
+            flux: f[3],
+            rms_db: f[4],
+            bass_db: f[5],
+            mid_db: f[6],
+            high_db: f[7],
+        }
+    }
 }
 
 struct Active {
@@ -127,10 +165,7 @@ impl AudioService {
         };
         let format = source.format();
         let (sink, ring_source) = ring(format.sample_rate, format.channels, RING_SECONDS);
-        let cfg = SpectrumConfig {
-            emit_bins: true,
-            ..SpectrumConfig::from_app(analysis, format.sample_rate)
-        };
+        let cfg = SpectrumConfig::new(analysis.clone(), format.sample_rate);
         let engine = Engine::start(kind, ring_source, format, cfg).map_err(|e| e.to_string())?;
         source.start(sink).map_err(|e| e.to_string())?;
         let info = SourceInfo {
@@ -159,10 +194,7 @@ impl AudioService {
     /// Applies new analysis settings to the running engine, if any.
     pub fn reconfigure(&self, analysis: &AnalysisConfig) {
         if let Some(active) = lock(&self.active).as_ref() {
-            let cfg = SpectrumConfig {
-                emit_bins: true,
-                ..SpectrumConfig::from_app(analysis, active.info.sample_rate)
-            };
+            let cfg = SpectrumConfig::new(analysis.clone(), active.info.sample_rate);
             match active.engine.reconfigure(cfg) {
                 Ok(generation) => {
                     tracing::debug!(target: "av_app::audio", generation, "analysis reconfigured")
@@ -199,7 +231,12 @@ impl AudioService {
             running: s.running,
             fft_size: s.fft_size,
             hop_samples: s.hop_samples,
-            bar_count: s.bar_count,
+            output_bins: s.bar_count,
+            layers: s.layers,
+            window_samples: s.window_samples,
+            parallel: s.parallel,
+            peak_hz: s.peak_hz,
+            features: s.features.map(Features::from),
             generation: s.generation,
             frames: s.frames,
             dsp_us_avg: s.dsp_us_avg,

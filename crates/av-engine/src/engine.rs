@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 use arc_swap::ArcSwap;
 use av_audio::{AudioSource, CaptureFormat};
 use av_dsp::{Analyzer, DspError, PlanCache, SpectrumConfig};
+use av_protocol::config::ParallelLayers;
 
 use crate::pipeline::Pipeline;
 use crate::slot_ring::{FrameReader, slot_ring};
@@ -154,24 +155,34 @@ impl Drop for Engine {
     }
 }
 
+/// Resolves `cfg` at the source rate (window in milliseconds, Nyquist-clamped axis) and builds
+/// the analyzer with the configured layer runner.
 fn build(
     plans: &mut PlanCache,
-    mut cfg: SpectrumConfig,
+    cfg: SpectrumConfig,
     format: CaptureFormat,
 ) -> Result<Analyzer, DspError> {
-    cfg.sample_rate = format.sample_rate;
-    cfg.max_hz = cfg.max_hz.min(format.sample_rate as f32 / 2.0);
+    let cfg = cfg.at_rate(format.sample_rate);
+    let mode = cfg.settings.parallel_layers;
     let plan = plans.get(cfg.fft_size);
-    Analyzer::with_runner(cfg, plan, layer_runner)
+    Analyzer::with_runner(cfg, plan, move |units| layer_runner(units, mode))
 }
 
-/// Layers from this count up run one per core: measured 1.85x faster at the default (4 layers,
-/// N = 32,768) and 2.5x at 6 layers; with 2 layers the hand-off costs what it saves
+/// In `Auto`, layers from this count up run one per core: measured 1.85x faster at the default
+/// (4 layers, N = 32,768) and 2.5x at 6 layers; with 2 layers the hand-off costs what it saves
 /// (`examples/layer_timing.rs`, docs/performance.md).
 pub const PARALLEL_FROM_LAYERS: usize = 3;
 
-fn layer_runner(units: Vec<av_dsp::LayerUnit>) -> Box<dyn av_dsp::LayerRunner> {
-    if units.len() >= PARALLEL_FROM_LAYERS {
+fn layer_runner(
+    units: Vec<av_dsp::LayerUnit>,
+    mode: ParallelLayers,
+) -> Box<dyn av_dsp::LayerRunner> {
+    let parallel = match mode {
+        ParallelLayers::Auto => units.len() >= PARALLEL_FROM_LAYERS,
+        ParallelLayers::Always => units.len() > 1,
+        ParallelLayers::Never => false,
+    };
+    if parallel {
         return Box::new(crate::parallel::ParallelLayers::new(units));
     }
     Box::new(av_dsp::SequentialLayers::new(units))
@@ -252,7 +263,12 @@ impl Worker {
             channels: self.format.channels,
             fft_size: cfg.fft_size as u32,
             hop_samples: cfg.hop_samples as u32,
-            bar_count: cfg.bar_count as u32,
+            bar_count: cfg.output_bins() as u32,
+            layers: cfg.layers as u32,
+            window_samples: cfg.window_samples as u32,
+            parallel: self.pipeline.analyzer().parallel(),
+            peak_hz: stats.peak_hz,
+            features: stats.features,
             generation: self.pipeline.generation(),
             clock: ClockSource::SampleCount,
             frames: previous.frames + stats.hops,

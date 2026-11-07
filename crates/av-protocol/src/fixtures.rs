@@ -287,12 +287,16 @@ pub fn settings_files() -> Vec<(&'static str, String)> {
             "config.defaults.json",
             to_text(&crate::config::AppConfig::default()),
         ),
-        ("config.limits.json", limits(crate::config::LIMITS)),
+        ("config.limits.json", limits(&crate::config::LIMITS)),
         (
             "scene.defaults.json",
             to_text(&crate::scene::Scene::default()),
         ),
         ("scene.limits.json", limits(crate::scene::LIMITS)),
+        (
+            "preset.defaults.json",
+            to_text(&crate::preset::Preset::default()),
+        ),
     ]
 }
 

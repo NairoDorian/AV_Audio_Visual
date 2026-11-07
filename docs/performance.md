@@ -24,6 +24,23 @@ The engine uses the parallel runner from 3 layers up. Every configuration fits t
 in parallel; sequentially L=6 N=65,536 does not. Allocation gate: `cargo test -p av-engine --test
 alloc` (parallel dispatch and collect, 500 hops, zero allocations on the analysis thread).
 
+## DSP: CHOP chain with layers (ADR-021), 2026-11-08
+
+Commands: `cargo run --release -p av-dsp --example dsp_timing` (sequential) and
+`cargo run --release -p av-engine --example layer_timing`. Same machine. Layers compute
+magnitudes only up to the warp's highest bin.
+
+| Config | Sequential p50 | Sequential p99 | Parallel p50 | Parallel p99 |
+| :-- | --: | --: | --: | --: |
+| **app default** (4 layers, N = 32,768, 1,024 log bins) | 197.9 us | 358.3 us | 112.5 us | 180.5 us |
+| 6 layers, N = 32,768 | 311.3 us | 540.8 us | 134.7 us | 302.8 us |
+| 6 layers, N = 65,536 | 684.1 us | 1,071.4 us | 286.2 us | 498.3 us |
+| classic 2,048 / 512 | 7.3 us | 11.4 us | - | - |
+
+Before this change the default was 874 us (sequential) and 350 us (parallel) at p99. Allocation
+gates: `cargo test -p av-dsp --test alloc` (default, 6 layers, classic, and every optional stage
+on) and `cargo test -p av-engine --test alloc`.
+
 ## DSP: layered FFT (ADR-020), first pass
 
 Command: `cargo run --release -p av-dsp --example dsp_timing` (5,000 hops after 100 warm-up, 128

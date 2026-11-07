@@ -25,6 +25,10 @@ parallel runner in `av-engine`), which must stay bit-identical to sequential exe
 Amended 2026-11-07: the zero-pad factor was replaced by a fixed common FFT size, and the FFT
 CHOP's defaults became the source of truth.
 
+Amended 2026-11-08 (ADR-021): the presets are gone; the first window, hop, FFT size and every
+CHOP stage after the layer average are settings of their own, and the band map is replaced by
+the CHOP's warp onto output bins.
+
 ## Consequences
 
 - Cost grows to `L` FFTs of size `N` per hop; budget and optimizations (layer decimation,

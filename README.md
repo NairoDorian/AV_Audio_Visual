@@ -191,8 +191,8 @@ The short version is below.
 
 | Topic | Ruling |
 | :-- | :-- |
-| Default FFT | **2048-point, 512-sample hop (75%)** for 60 fps. Optional **8192/87.5% Precision** at 30 fps. 1024 for low power. |
-| Bars | **Per-bar edges**, default 48 bars, max 128. Seven-band mode remains a compatibility preset. |
+| Default FFT | **Layered Super FFT** (ADR-020): 4 windows of 1,024-8,192 samples, one 32,768-point FFT, 512-sample hop; every parameter adjustable (ADR-021). |
+| Bars | **FFT CHOP output bins** (8-65,537, default 1,024 on a warp-blended log axis, peak aggregation); each scene peak-pools them to its own bar count (default 64). No fixed presets: every analysis parameter is editable and named sets are user presets (ADR-021). |
 | Analysis rate | Up to **93.75 Hz** at 48 kHz; display at 60 fps; interpolate; never run FFT per refresh. |
 | Smoothing | **Time-based** attack/release with a clamped `dt`. |
 | Renderer | **Native wgpu** for all visualizer surfaces. SolidJS canvas is a preview only. |

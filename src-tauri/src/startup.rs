@@ -115,6 +115,7 @@ pub fn run() {
         }
     };
 
+    let presets = Arc::new(crate::presets::PresetStore::new(&dirs.root));
     let audio = Arc::new(AudioService::default());
     let (store_for_setup, audio_for_setup) = (store.clone(), audio.clone());
 
@@ -122,6 +123,7 @@ pub fn run() {
         .runtime(tauri_runtime_wry::Wry::default())
         .manage(store.clone())
         .manage(audio.clone())
+        .manage(presets)
         .invoke_handler(tauri::generate_handler![
             commands::get_app_info,
             commands::get_config,
@@ -131,7 +133,11 @@ pub fn run() {
             commands::get_audio_status,
             commands::get_frame,
             commands::list_scenes,
-            commands::get_active_scene
+            commands::get_active_scene,
+            commands::list_presets,
+            commands::save_preset,
+            commands::apply_preset,
+            commands::delete_preset
         ])
         .setup(move |app| {
             // 7. Let the panic hook reach the app.

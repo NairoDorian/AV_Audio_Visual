@@ -313,9 +313,9 @@ mod tests {
     #[test]
     fn a_partial_file_is_completed_without_a_backup() {
         let d = temp_dir("partial");
-        std::fs::write(d.join(FILE_NAME), r#"{"analysis":{"barCount":64}}"#).unwrap();
+        std::fs::write(d.join(FILE_NAME), r#"{"analysis":{"outputBins":64}}"#).unwrap();
         let (store, _) = ConfigStore::open(&d).unwrap();
-        assert_eq!(store.get().analysis.bar_count, 64);
+        assert_eq!(store.get().analysis.output_bins, 64);
         assert_eq!(backups(&d), 0);
         let text = std::fs::read_to_string(d.join(FILE_NAME)).unwrap();
         assert!(
@@ -329,7 +329,7 @@ mod tests {
         let d = temp_dir("debounce");
         let (store, _) = ConfigStore::open_with(&d, Duration::from_secs(60)).unwrap();
         for n in [10, 20, 30, 40] {
-            store.patch(&json!({ "analysis": { "barCount": n } }));
+            store.patch(&json!({ "analysis": { "outputBins": n } }));
         }
         // Within the (long) debounce nothing is written yet.
         let before = std::fs::read_to_string(d.join(FILE_NAME)).unwrap();
@@ -337,13 +337,16 @@ mod tests {
             pipeline::load::<AppConfig>(&before)
                 .value
                 .analysis
-                .bar_count,
-            48
+                .output_bins,
+            1024
         );
         store.flush();
         let after = std::fs::read_to_string(d.join(FILE_NAME)).unwrap();
         assert_eq!(
-            pipeline::load::<AppConfig>(&after).value.analysis.bar_count,
+            pipeline::load::<AppConfig>(&after)
+                .value
+                .analysis
+                .output_bins,
             40
         );
     }
@@ -376,7 +379,7 @@ mod tests {
     fn an_unchanged_patch_schedules_nothing() {
         let d = temp_dir("noop");
         let (store, _) = ConfigStore::open_with(&d, Duration::from_secs(60)).unwrap();
-        let (applied, report) = store.patch(&json!({ "analysis": { "barCount": 48 } }));
+        let (applied, report) = store.patch(&json!({ "analysis": { "outputBins": 1024 } }));
         assert_eq!(applied, AppConfig::default());
         assert!(!report.changed());
     }

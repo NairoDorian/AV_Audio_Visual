@@ -60,6 +60,8 @@ pub struct Scene {
     pub id: String,
     pub name: String,
     pub style: VisualStyle,
+    /// Display bars of the bar styles, peak-pooled from the analysis output bins.
+    pub bar_count: u32,
     /// Bar width as a fraction of its slot (the rest is the gap).
     pub bar_width: f32,
     /// Corner radius as a fraction of half the bar width.
@@ -77,6 +79,7 @@ impl Default for Scene {
             id: "bars".into(),
             name: "Bars".into(),
             style: VisualStyle::Bars,
+            bar_count: 64,
             bar_width: 0.7,
             corner_radius: 1.0,
             opacity: 1.0,
@@ -109,10 +112,11 @@ pub fn builtin(id: &str) -> Scene {
 }
 
 pub static LIMITS: &[Limit<Scene>] = &[
+    limit!(Scene, "barCount", 4, 4_096, int, bar_count),
     limit!(Scene, "barWidth", 0.05, 1, float, bar_width),
     limit!(Scene, "cornerRadius", 0, 1, float, corner_radius),
     limit!(Scene, "opacity", 0, 1, float, opacity),
-    limit!(Scene, "ring.bins", 12, 240, int, ring.bins),
+    limit!(Scene, "ring.bins", 12, 4_096, int, ring.bins),
     limit!(Scene, "ring.floor", 0, 0.9, float, ring.floor),
     limit!(Scene, "ring.gain", 0.05, 8, float, ring.gain),
     limit!(Scene, "ring.radius", 0.1, 0.5, float, ring.radius),

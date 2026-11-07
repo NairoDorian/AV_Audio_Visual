@@ -12,8 +12,8 @@ What is implemented versus planned, kept truthful (AGENTS.md section 8). Steps r
 | A2 updater | Not started | `update-deps.ts` / `update-policy.ts` / `update-all.ts` port from ZER0 + CursorFX (blueprint 8.1) | - |
 | A3 typed IPC | Not started | Commands are hand-typed in `src/lib/ipc.ts` until the `tauri-specta-v3` fork is rebased and pinned (ADR-014) | - |
 | A4 wire format | Done | `av-protocol` frame/wire v1, fixtures, `src/lib/frame/wire.ts` | 13 fixtures byte-identical in both directions |
-| A5 config | Done | `AppConfig`/`Scene` v1, migrate -> heal -> sanitize -> normalize, atomic debounced store with backups, ADR-007 | 18 pipeline + 8 store tests; settings parity fixtures |
-| A6 DSP | Done | Analyzer (window, DC blocker, bands, weighting, auto-gain, ballistics, peaks) | Pre-plan section 6 gates; zero allocations; p99 18.6 us/hop (`docs/performance.md`) |
+| A5 config | Done | `AppConfig` v2 (every FFT CHOP parameter, migration from v1), `Scene` v1, user analysis presets, migrate -> heal -> sanitize -> normalize, atomic debounced store with backups, ADR-007, ADR-021 | Pipeline, migration, preset and store tests; settings and parameter-table parity fixtures |
+| A6 DSP | Done | Analyzer: layered FFT in front of the FFT CHOP chain (6 windows, 7 scales, warp interpolation and aggregation, A/C/ITU-R 468, references, loudness, ballistics, spectral features) | Golden, layered and allocation gates; default p99 181 us parallel (`docs/performance.md`) |
 | A7 engine | Done | rtrb ring, symphonia file source, analysis worker, 64-slot seqlock ring, status snapshot, preview encoder | Bit-exact golden frames; no torn reads; zero allocations on the frame path |
 | A8 preview | Done | `get_frame` raw pulls, frame bus, preview canvas, demo track | Bus tests; manual run with `--demo` (moving bars captured) |
 | A9 headless render | Not started | wgpu instanced bars, offscreen target, premultiplied invariant | - |
@@ -23,8 +23,8 @@ What is implemented versus planned, kept truthful (AGENTS.md section 8). Steps r
 
 | Item | State |
 | :-- | :-- |
-| Layered FFT (1-6 layers, zero-padded, 1/2^(k-1) scaled, averaged) | Done: default preset (4 layers, zero-pad 2); gates and timings recorded. Optimizations (decimation, per-layer FFT size) open |
-| FFT CHOP integration (Kaiser, warps, ITU-R 468, EQ, aggregation, output modes) | Kaiser and zero-padding done; warps, ITU-R 468, EQ, aggregation, output modes planned |
+| Layered FFT (1-6 layers, zero-padded, 1/2^(k-1) scaled, averaged) | Done: default 4 layers of 1,024-8,192, FFT 32,768, parallel from 3 layers; magnitudes only where read. Open: layer decimation, AVX2 kernels, MMCSS priority |
+| FFT CHOP integration (every parameter, ADR-021) | Done: all pages in the Studio, one built-in default, user presets saved as files. Not ported: FFTW planner/backend, ingest, worker wake (TouchDesigner-only) |
 | Concentric spectrum view (ZER0 circular scope) | First version in the Studio preview (`concentric` scene). Full component set (outer/inner lines, outer/inner/spanning bars, bar inset, high bar counts) planned: docs/super-fft.md 3 |
 | Raw audio scope (tapered one-frame trace, linear and inside the ring with mirrors and rotational copies) | Planned: docs/super-fft.md 4; needs wire v2 (section 5) |
 
@@ -39,4 +39,5 @@ What is implemented versus planned, kept truthful (AGENTS.md section 8). Steps r
 - Timestamps use the sample-count clock; device-clock anchoring arrives with WASAPI.
 - The analysis worker polls every quarter hop while active; deep-idle parking is Phase 1B.6.
 - A generation swap restarts ballistics from zero (a brief dip in the preview).
+- Scene editing is not in the Studio yet: the display bar count is a preview-only control.
 - Linux and macOS: compile and unit tests pass in CI; nothing has been run interactively there.

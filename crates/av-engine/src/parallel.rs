@@ -179,6 +179,10 @@ impl LayerRunner for ParallelLayers {
     fn layer_count(&self) -> usize {
         1 + self.workers.len()
     }
+
+    fn is_parallel(&self) -> bool {
+        self.workers.iter().any(|w| w.thread.is_some())
+    }
 }
 
 impl Drop for ParallelLayers {
@@ -212,8 +216,8 @@ mod tests {
             .collect()
     }
 
-    /// The parallel runner is a scheduling change only: bars, dB and bins match the sequential
-    /// analyzer bit for bit.
+    /// The parallel runner is a scheduling change only: the display and the linear magnitude
+    /// match the sequential analyzer bit for bit.
     #[test]
     fn parallel_layers_are_bit_identical_to_sequential() {
         for layers in [2usize, 4, 6] {
@@ -228,12 +232,12 @@ mod tests {
             let hop = cfg.hop_samples;
             for h in 0..120 {
                 let x = tone_hop(h * hop, hop);
-                let a = seq.process(&x, hop as f32 / 48_000.0).bar_db.to_vec();
-                let b = par.process(&x, hop as f32 / 48_000.0).bar_db.to_vec();
+                let a = seq.process(&x, hop as f32 / 48_000.0).bars.to_vec();
+                let b = par.process(&x, hop as f32 / 48_000.0).bars.to_vec();
                 let bits = |v: &[f32]| v.iter().map(|f| f.to_bits()).collect::<Vec<_>>();
                 assert_eq!(bits(&a), bits(&b), "L={layers} hop {h}");
             }
-            assert_eq!(seq.bin_power(), par.bin_power());
+            assert_eq!(seq.linear_magnitude(), par.linear_magnitude());
         }
     }
 
@@ -241,7 +245,7 @@ mod tests {
     fn dropping_the_runner_stops_its_threads() {
         let cfg = SpectrumConfig::layered(3, 8192);
         let fft = PlanCache::default().get(cfg.fft_size);
-        let runner = ParallelLayers::new(cfg.build_units(&fft));
+        let runner = ParallelLayers::new(cfg.build_units(&fft, cfg.bin_count()));
         assert_eq!(runner.layer_count(), 3);
         drop(runner); // joins; a hang here fails the test by timeout
     }
@@ -259,7 +263,7 @@ mod tests {
             for _ in 0..50 {
                 a.process(&x, hop as f32 / 48_000.0);
             }
-            a.process(&x, hop as f32 / 48_000.0).bar_db.to_vec()
+            a.process(&x, hop as f32 / 48_000.0).bars.to_vec()
         })
         .join()
         .unwrap();

@@ -32,7 +32,7 @@ fn main() {
     for fft in [16_384usize, 32_768, 65_536] {
         for layers in [2usize, 3, 4, 5, 6] {
             let cfg = SpectrumConfig::layered(layers, fft);
-            if cfg.validate().is_err() {
+            if cfg.validate().is_err() || cfg.fft_size != fft {
                 continue;
             }
             let plan = plans.get(fft);

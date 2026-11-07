@@ -34,9 +34,21 @@ struct Slot {
     bins: Box<[AtomicU32]>,
 }
 
+/// A zeroed payload from the zeroing allocator, so pages the frame never reaches stay
+/// uncommitted: 64 slots sized for 65,537 output bins reserve 16.8 MB, but at the default 1,024
+/// bins only the first 4 KB of each slot is ever touched.
+fn zeroed_atomics(n: usize) -> Box<[AtomicU32]> {
+    let zeros: Box<[u32]> = vec![0u32; n].into_boxed_slice();
+    // SAFETY: `AtomicU32` has the same size, alignment and bit validity as `u32` (documented
+    // in std), so this uniquely owned allocation of `n` zeroed `u32` is a valid `[AtomicU32]`
+    // of the same layout, and dropping the box frees it with that layout. Tested by
+    // `zeroed_payload_reads_zero_and_takes_writes`.
+    unsafe { Box::from_raw(Box::into_raw(zeros) as *mut [AtomicU32]) }
+}
+
 impl Slot {
     fn new() -> Self {
-        let zeros = |n: usize| (0..n).map(|_| AtomicU32::new(0)).collect::<Box<[_]>>();
+        let zeros = zeroed_atomics;
         Self {
             version: AtomicU32::new(0),
             sequence: AtomicU32::new(0),
@@ -400,5 +412,14 @@ mod tests {
         stop.store(true, Ordering::Relaxed);
         let reads: u64 = readers.into_iter().map(|t| t.join().unwrap()).sum();
         assert!(reads > 0);
+    }
+
+    #[test]
+    fn zeroed_payload_reads_zero_and_takes_writes() {
+        let p = zeroed_atomics(70_000);
+        assert_eq!(p.len(), 70_000);
+        assert!(p.iter().all(|a| a.load(Ordering::Relaxed) == 0));
+        p[69_999].store(7, Ordering::Relaxed);
+        assert_eq!(p[69_999].load(Ordering::Relaxed), 7);
     }
 }

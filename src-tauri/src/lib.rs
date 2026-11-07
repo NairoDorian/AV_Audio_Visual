@@ -12,6 +12,7 @@ mod logging;
 mod panic;
 mod paths;
 mod preflight;
+mod presets;
 mod startup;
 
 pub use startup::run;

@@ -6,11 +6,14 @@ import { onSettled } from "solid-js";
 import type { DecodedFrame } from "../../lib/frame/wire";
 import { frameBus, type Scene } from "../../lib/ipc";
 import { drawRing, poolRing } from "../../lib/render/concentric";
+import { poolPeak } from "../../lib/render/pool";
 
 const FALLBACK_PALETTE = ["#3d6bff", "#8a5cff", "#ff5ca8"];
 
 export default function Preview(props: {
   scene: Scene | null;
+  /** Display bars (bar styles) or ring bins (concentric); defaults to the scene's own. */
+  displayCount?: number;
   onError?: (message: string) => void;
 }) {
   let canvas: HTMLCanvasElement | undefined;
@@ -22,6 +25,7 @@ export default function Preview(props: {
     let gradient: CanvasGradient | null = null;
     let gradientKey = "";
     let pooled = new Float32Array(96);
+    let pooledBars = new Float32Array(64);
     let frame: DecodedFrame | null = null;
     let drawQueued = 0;
     let unsubscribe: (() => void) | null = null;
@@ -81,7 +85,7 @@ export default function Preview(props: {
       ctx.globalAlpha = scene?.opacity ?? 1;
       ctx.fillStyle = fill;
       if (scene?.style === "concentric") {
-        const ring = scene.ring;
+        const ring = { ...scene.ring, bins: props.displayCount ?? scene.ring.bins };
         if (pooled.length !== ring.bins) pooled = new Float32Array(ring.bins);
         poolRing(frame.bars, ring, pooled);
         const r = ring.radius * Math.min(el.width, el.height) * 0.5;
@@ -92,7 +96,13 @@ export default function Preview(props: {
           base: scene.palette[0] ?? FALLBACK_PALETTE[0]!,
         });
       } else {
-        drawBars(frame.bars, scene);
+        const n = Math.max(1, props.displayCount ?? scene?.barCount ?? 64);
+        if (n >= frame.bars.length) {
+          drawBars(frame.bars, scene);
+        } else {
+          if (pooledBars.length !== n) pooledBars = new Float32Array(n);
+          drawBars(poolPeak(frame.bars, pooledBars), scene);
+        }
       }
       ctx.globalAlpha = 1;
     };

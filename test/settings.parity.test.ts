@@ -23,6 +23,8 @@ function resolvePath(doc: unknown, path: string): unknown {
   }, doc);
 }
 
+const VERSIONS = { config: 2, scene: 1 } as const;
+
 for (const kind of ["config", "scene"] as const) {
   describe(`${kind} settings parity`, () => {
     const defaults = read(`${kind}.defaults.json`);
@@ -30,7 +32,7 @@ for (const kind of ["config", "scene"] as const) {
     const versionKey = kind === "config" ? "schemaVersion" : "formatVersion";
 
     test("the defaults carry the current version", () => {
-      expect(defaults[versionKey]).toBe(1);
+      expect(defaults[versionKey]).toBe(VERSIONS[kind]);
     });
 
     test("every limit names a numeric field whose default matches", () => {
@@ -56,6 +58,13 @@ for (const kind of ["config", "scene"] as const) {
     });
   });
 }
+
+test("the built-in preset is exactly the default analysis", () => {
+  const preset = read("preset.defaults.json");
+  expect(preset.presetVersion).toBe(1);
+  expect(preset.id).toBe("default");
+  expect(preset.analysis).toEqual(read("config.defaults.json").analysis);
+});
 
 test("scenes exclude machine-specific settings", () => {
   const scene = JSON.stringify(read("scene.defaults.json")).toLowerCase();

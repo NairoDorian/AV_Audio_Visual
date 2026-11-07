@@ -9,10 +9,12 @@ pub mod fixtures;
 pub mod frame;
 pub mod pipeline;
 pub mod placement;
+pub mod preset;
 pub mod scene;
 pub mod wire;
 
 pub use config::AppConfig;
 pub use frame::{FrameFlags, FrameHeader, WIRE_VERSION, WireError};
 pub use pipeline::{Loaded, Report, Versioned};
+pub use preset::Preset;
 pub use scene::Scene;

@@ -7,9 +7,10 @@ use av_dsp::{Analyzer, PlanCache, SpectrumConfig};
 const SR: u32 = 48_000;
 
 fn contrast(layers: usize, sep_bins: usize) -> f64 {
-    let mut cfg = SpectrumConfig::layered(layers, 32_768);
-    cfg.fft_size = 32_768;
-    cfg.auto_gain = false;
+    let mut s = SpectrumConfig::layered(layers, 32_768).settings;
+    s.raw_bins = true;
+    s.magnitude_norm = av_protocol::config::MagnitudeNorm::FullScale;
+    let cfg = SpectrumConfig::new(s, SR);
     let mut a = Analyzer::new(cfg.clone(), PlanCache::default().get(32_768)).unwrap();
     let df = SR as f64 / 32_768.0;
     let b1 = 41usize;
@@ -29,9 +30,10 @@ fn contrast(layers: usize, sep_bins: usize) -> f64 {
         }
         a.process(&buf, hop as f32 / SR as f32);
         if h > 70 {
-            let p = a.bin_power();
-            peaks += (p[b1] + p[b2]) as f64 / 2.0;
-            dip += p[mid] as f64;
+            let m = a.linear_magnitude();
+            let p = |k: usize| (m[k] as f64) * (m[k] as f64);
+            peaks += (p(b1) + p(b2)) / 2.0;
+            dip += p(mid);
         }
     }
     10.0 * (peaks / dip).log10()

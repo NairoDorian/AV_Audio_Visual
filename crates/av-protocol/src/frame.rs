@@ -21,7 +21,7 @@ pub const HEADER_BYTES: usize = HEADER_WORDS * 4;
 /// The wire version this crate writes and the only one it reads.
 pub const WIRE_VERSION: u8 = 1;
 /// Maximum bars in one frame (slot capacity, pre-plan 5.4).
-pub const MAX_BARS: usize = 128;
+pub const MAX_BARS: usize = crate::config::MAX_OUTPUT_BINS as usize;
 /// Largest FFT the slot ring is sized for; bins = `MAX_FFT_SIZE / 2 + 1` = 4,097.
 pub const MAX_FFT_SIZE: usize = 8192;
 /// Maximum bins in one frame.
@@ -311,7 +311,7 @@ mod tests {
         h.bar_count = MAX_BARS as u32 + 1;
         assert_eq!(
             FrameHeader::from_words(h.to_words()),
-            Err(WireError::TooManyBars(129))
+            Err(WireError::TooManyBars(MAX_BARS as u32 + 1))
         );
         let mut h = sample();
         h.fft_size = 1023;

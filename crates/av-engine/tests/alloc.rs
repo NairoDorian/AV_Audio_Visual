@@ -38,10 +38,9 @@ static GLOBAL: Counting = Counting;
 
 #[test]
 fn feed_publish_read_and_encode_never_allocate() {
-    let cfg = SpectrumConfig {
-        emit_bins: true,
-        ..SpectrumConfig::default()
-    };
+    let mut s = SpectrumConfig::default().settings;
+    s.spectral_features = true;
+    let cfg = SpectrumConfig::new(s, 48_000);
     let analyzer = Analyzer::new(cfg.clone(), PlanCache::default().get(cfg.fft_size)).unwrap();
     let (mut writer, reader) = slot_ring();
     let mut pipeline = Pipeline::new(analyzer, 1, 2, 0);

@@ -65,16 +65,22 @@ squared and summed over every bin (`ENBW_eff`). With one layer this reduces to t
 
 ### 1.4 Settings
 
+Every FFT CHOP parameter is a setting of its own (ADR-021); there are no fixed presets, one
+built-in default, and user-saved presets. The full table with ranges is
+`src/features/analysis/params.ts` (checked against the Rust limits by a parity test). The
+layered ones:
+
 | Setting | Values | Default |
 | :-- | :-- | :-- |
-| `preset` | `layered` plus the classic single-window presets | `layered` |
-| `layers` | 1-6 (6 reaches 32,768) | 4 (1,024-8,192) |
-| `fftSize` | 8,192-131,072, power of two, >= largest window; the same for every layer | 32,768 |
-| base window | 1,024 (fixed by the design) | 1,024 |
-| hop | 512 at 48 kHz (93.75 analyses/s) | 512 |
-| window shape | Kaiser(beta), Hann, Blackman-Harris | Kaiser, beta 15 (CHOP) |
-| axis | Log, 20 Hz-24 kHz, `warpBlend` 0-1 mixes linear and log bar edges | Log, warp blend 0.93 |
-| pre-analysis EQ | high shelf (gain, cutoff), low shelf, Q, amount | high shelf +24 dB at 1 kHz, Q 0.707, no low shelf |
+| `layers` | 1-6; reduced so the longest window stays <= 65,536 | 4 (1,024-8,192) |
+| `fftSize` | 1,024-131,072, power of two; the same for every layer; grown at run time to the longest window, never rewritten | 32,768 |
+| `windowSamples` / `windowMs` | first layer's window, 16-65,536 samples or 0.5-5,000 ms | 1,024 samples |
+| `hopSamples` | 32-16,384 (93.75 analyses/s at 512) | 512 |
+| `window` | Kaiser (beta manual 0-100 or auto from dB range), Hann, Hamming, Blackman, Blackman-Harris, Rectangular | Kaiser, beta 15 (CHOP) |
+| axis | 7 scales, display max, log floor, warp blend, linear/cubic, off/peak/RMS aggregation, 8-65,537 output bins or auto | Log 20 Hz-24 kHz, warp 0.93, 1,024 bins, peak |
+| pre-analysis EQ | high and low shelf (gain, cutoff), Q, blend 0-5 | high shelf +24 dB at 1 kHz, Q 0.707, no low shelf |
+| loudness | dB over a 10-160 dB range or linear; frame peak, dBFS or AGC reference | dB, 80 dB, AGC (1.5 s release) |
+| ballistics | coefficients or milliseconds | 15 / 250 ms (ZER0) |
 
 Source of truth for every default: the FFT CHOP (`Parameters.h` `struct Values`) and ZER0's
 port of it (`Handy_V2 src-tauri/src/live_fft/dsp.rs`, MIT), with the product owner's overrides
@@ -84,7 +90,7 @@ port of it (`Handy_V2 src-tauri/src/live_fft/dsp.rs`, MIT), with the product own
 
 1. **Cost budget.** `L` real FFTs of size `N` per hop. Target: p99 < 2 ms at 6 layers and
    N = 65,536 on the dev machine; record every configuration in `docs/performance.md`.
-2. **Parallel layers (done).** Layer 0 on the analysis thread, every other layer on its own
+2. **Parallel layers (done; Performance page: auto / always / never).** Layer 0 on the analysis thread, every other layer on its own
    `av-layer-<k>` thread for the analyzer's lifetime; per hop a park/unpark hand-off of
    preallocated jobs, results summed in layer order (bit-identical to sequential, allocation
    gate green). Used from 3 layers up. Measured p99: default (4 layers, N = 32,768) 874 -> 350 us,
@@ -94,8 +100,10 @@ port of it (`Handy_V2 src-tauri/src/live_fft/dsp.rs`, MIT), with the product own
 3. **Layer decimation** (option): layer `k` recomputes every `2^(k-1)` hops and its last
    spectrum is reused in between. Long layers change slowly; this divides their cost without
    touching the 1,024 layer's reactivity. A/B visually before enabling.
-4. **Magnitudes only where read**: compute `|X|` only up to the highest bin the bands (and the
-   display warp) read, as ZER0 does; AVX2 kernels for dB and warp where an A/B shows a gain.
+4. **Magnitudes only where read (done)**: every layer computes `|X|` only up to the warp's
+   highest bin (all bins with features or raw bins). Default p99: 874 -> 319 us sequential,
+   350 -> 181 us parallel. Open: ZER0's AVX2 kernels for dB, warp and features where an A/B
+   shows a gain.
 5. **Warm everything**: one plan per distinct `N` from the plan cache, one precomputed window per
    layer, one shared history ring of `W_max` samples, scratch reused. No allocation per hop
    (the allocation gate covers layered mode).
@@ -289,12 +297,14 @@ reads the slot ring in place as before.
 
 1. ADR-020 and this plan. Done.
 2. `av-dsp`: layered analyzer, Kaiser window, exact `ENBW_eff`, gates, timings. Done.
-3. `AppConfig`: `layers`, `zeroPad`, `layered` preset as the default; Studio controls. Done.
+3. `AppConfig`: `layers`, FFT size, layered default; Studio controls. Done; superseded by
+   step 8's schema v2 (ADR-021).
 4. Studio preview: `concentric` built-in scene (outer/inner lines or spanning bars). Done.
 5. Wire v2 + slot ring blocks: waveform and display spectrum (section 5), with parity fixtures.
 6. Concentric components and bar inset (section 3.2), scene format v2 with migration.
 7. Raw audio scope: taper, linear scope, ring traces with the three controls (section 4).
-8. CHOP features (warps first: they also produce the display spectrum), ITU-R 468, peak
-   aggregation, EQ, output modes, each with goldens.
+8. CHOP features: every parameter (7 scales, 6 windows, cubic warp, peak/RMS aggregation,
+   A/C/ITU-R 468, references, loudness and ballistics modes, spectral features, output bins up
+   to 65,537), config schema v2 with migration, user presets. Done (ADR-021).
 9. Optimizations of section 1.5 behind measured A/B results.
 10. wgpu renderer (A9): bars, concentric ring and scope traces natively.

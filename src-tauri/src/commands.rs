@@ -10,6 +10,7 @@ use serde::Serialize;
 
 use crate::audio::{AudioService, AudioStatus, SourceInfo, SourceRequest};
 use crate::config_store::ConfigStore;
+use crate::presets::{PresetInfo, PresetStore};
 
 /// Identity and build facts shown in the Studio diagnostics section.
 #[derive(Debug, Clone, Serialize)]
@@ -104,6 +105,48 @@ pub async fn get_frame(
 #[tauri::command]
 pub fn list_scenes() -> Vec<Scene> {
     av_protocol::scene::builtin_scenes()
+}
+
+/// The built-in default and every user preset.
+#[tauri::command]
+pub fn list_presets(presets: tauri::State<'_, Arc<PresetStore>>) -> Vec<PresetInfo> {
+    presets.list()
+}
+
+/// Saves the current analysis settings as a named preset (same name overwrites).
+#[tauri::command]
+pub fn save_preset(
+    store: tauri::State<'_, Arc<ConfigStore>>,
+    presets: tauri::State<'_, Arc<PresetStore>>,
+    name: String,
+) -> Result<PresetInfo, String> {
+    presets.save(&name, store.get().analysis)
+}
+
+/// Copies a preset's settings into the config. Nothing keeps tracking the preset afterwards:
+/// every parameter stays editable.
+#[tauri::command]
+pub fn apply_preset(
+    store: tauri::State<'_, Arc<ConfigStore>>,
+    audio: tauri::State<'_, Arc<AudioService>>,
+    presets: tauri::State<'_, Arc<PresetStore>>,
+    id: String,
+) -> Result<Applied, String> {
+    let preset = presets.get(&id).ok_or("no such preset")?;
+    let analysis = serde_json::to_value(&preset.analysis).map_err(|e| e.to_string())?;
+    Ok(patch_config(
+        store,
+        audio,
+        serde_json::json!({ "analysis": analysis }),
+    ))
+}
+
+#[tauri::command]
+pub fn delete_preset(
+    presets: tauri::State<'_, Arc<PresetStore>>,
+    id: String,
+) -> Result<(), String> {
+    presets.delete(&id)
 }
 
 /// The scene the config selects, falling back to the default scene.

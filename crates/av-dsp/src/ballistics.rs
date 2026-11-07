@@ -1,62 +1,36 @@
-//! Time-based attack/release smoothing and peak hold (README 3.1 rule 4). The same preset
-//! behaves identically at any analysis or display rate because every coefficient comes from
-//! `exp(-dt / tau)` with a clamped `dt`, never from a per-frame constant.
+//! Attack/release ballistics (FFT CHOP "Loudness & Ballistics"). Two ways to say the same
+//! envelope: a per-hop coefficient, or a time constant converted with the real hop duration
+//! (`exp(-dt / tau)`), so the Milliseconds mode behaves identically at any hop size.
+//!
+//! `state += (1 - c) * (target - state)` with `c` the attack coefficient when rising and the
+//! release coefficient when falling; 0 follows instantly, 0.99 is the CHOP's slowest (1 would
+//! freeze the state forever). Ported from ZER0 `live_fft/dsp.rs` section 7 (MIT).
 
-/// Longest step accepted; a stall longer than this is treated as this long.
-pub const MAX_DT: f32 = 0.25;
+/// Largest per-hop coefficient.
+pub const MAX_COEF: f32 = 0.999;
+/// Below this an envelope is flushed to zero (a release towards silence ends in denormals).
+const FLUSH: f32 = 1e-20;
 
-/// `1 - exp(-dt / tau)`; a zero time constant means "follow instantly".
-#[inline]
-pub fn coefficient(dt: f32, time_ms: f32) -> f32 {
-    if time_ms <= 0.0 {
-        return 1.0;
+/// Time constant (ms) to a per-hop coefficient for a hop of `dt_ms`; tau = time to 63 %.
+pub fn coef_from_ms(time_ms: f64, dt_ms: f64) -> f32 {
+    if time_ms <= 0.0 || dt_ms <= 0.0 {
+        return 0.0;
     }
-    1.0 - (-dt.clamp(0.0, MAX_DT) * 1000.0 / time_ms).exp()
+    (-dt_ms / time_ms).exp().clamp(0.0, MAX_COEF as f64) as f32
 }
 
-/// Per-bar exponential attack/release.
-#[derive(Debug, Clone, Copy)]
-pub struct Ballistics {
-    pub attack_ms: f32,
-    pub release_ms: f32,
-}
-
-impl Ballistics {
-    /// Moves every `state` value toward its `target`.
-    pub fn apply(&self, state: &mut [f32], target: &[f32], dt: f32) {
-        let up = coefficient(dt, self.attack_ms);
-        let down = coefficient(dt, self.release_ms);
-        for (s, &t) in state.iter_mut().zip(target) {
-            let k = if t > *s { up } else { down };
-            *s += (t - *s) * k;
-            if s.abs() < 1e-12 {
-                *s = 0.0;
-            }
+/// Moves `state` toward `values` and writes the new envelope back into `values`.
+pub fn apply(attack: f32, release: f32, values: &mut [f32], state: &mut [f32]) {
+    let up = 1.0 - attack.clamp(0.0, MAX_COEF);
+    let down = 1.0 - release.clamp(0.0, MAX_COEF);
+    for (v, s) in values.iter_mut().zip(state.iter_mut()) {
+        let diff = *v - *s;
+        let mut next = *s + if diff > 0.0 { up } else { down } * diff;
+        if next.abs() < FLUSH {
+            next = 0.0;
         }
-    }
-}
-
-/// Peak markers: hold for `hold_ms`, then fall at `fall_per_s` (normalized units per second).
-#[derive(Debug, Clone, Copy)]
-pub struct PeakHold {
-    pub hold_ms: f32,
-    pub fall_per_s: f32,
-}
-
-impl PeakHold {
-    pub fn apply(&self, peaks: &mut [f32], held_s: &mut [f32], values: &[f32], dt: f32) {
-        let dt = dt.clamp(0.0, MAX_DT);
-        for ((p, h), &v) in peaks.iter_mut().zip(held_s.iter_mut()).zip(values) {
-            if v >= *p {
-                *p = v;
-                *h = 0.0;
-            } else {
-                *h += dt;
-                if *h * 1000.0 > self.hold_ms {
-                    *p = (*p - self.fall_per_s * dt).max(v);
-                }
-            }
-        }
+        *s = next;
+        *v = next;
     }
 }
 
@@ -64,69 +38,34 @@ impl PeakHold {
 mod tests {
     use super::*;
 
-    /// Pre-plan 6: a step sampled at 30/60/120 fps reaches the same value at the same time.
     #[test]
-    fn step_response_is_frame_rate_independent() {
-        let b = Ballistics {
-            attack_ms: 40.0,
-            release_ms: 300.0,
-        };
-        let attack = |fps: f32| {
-            let mut s = [0.0f32];
-            for _ in 0..(0.5 * fps).round() as usize {
-                b.apply(&mut s, &[1.0], 1.0 / fps);
+    fn a_time_constant_reaches_63_percent_after_tau_at_any_hop() {
+        for hop_ms in [1.0, 5.333, 10.667, 21.333] {
+            let k = coef_from_ms(100.0, hop_ms);
+            let (mut v, mut s) = ([0.0f32], [0.0f32]);
+            let steps = (100.0 / hop_ms).round() as usize;
+            for _ in 0..steps {
+                v[0] = 1.0;
+                apply(k, k, &mut v, &mut s);
             }
-            s[0]
-        };
-        let (a, c, d) = (attack(30.0), attack(60.0), attack(120.0));
-        assert!((a - c).abs() < 1e-3 && (c - d).abs() < 1e-3, "{a} {c} {d}");
-        let release = |fps: f32| {
-            let mut s = [1.0f32];
-            // 0.5 s is a whole number of frames at 30, 60, 120 and 144 fps.
-            for _ in 0..(0.5 * fps).round() as usize {
-                b.apply(&mut s, &[0.0], 1.0 / fps);
-            }
-            s[0]
-        };
-        assert!((release(30.0) - release(144.0)).abs() < 1e-3);
+            let expect = 1.0 - (-(steps as f64 * hop_ms) / 100.0).exp();
+            assert!((s[0] as f64 - expect).abs() < 1e-4, "{hop_ms}: {}", s[0]);
+        }
     }
 
     #[test]
-    fn time_constants_mean_what_they_say() {
-        // After one time constant an exponential covers 1 - 1/e of the step.
-        let b = Ballistics {
-            attack_ms: 100.0,
-            release_ms: 100.0,
-        };
-        let mut s = [0.0f32];
-        for _ in 0..100 {
-            b.apply(&mut s, &[1.0], 0.001);
-        }
-        assert!((s[0] - (1.0 - (-1.0f32).exp())).abs() < 1e-3);
+    fn zero_coefficients_follow_instantly_and_release_is_asymmetric() {
+        let (mut v, mut s) = ([0.8f32, 0.1], [0.0f32, 0.5]);
+        apply(0.0, 0.9, &mut v, &mut s);
+        assert_eq!(v[0], 0.8);
+        assert!((v[1] - 0.46).abs() < 1e-6);
+        assert_eq!(coef_from_ms(0.0, 10.0), 0.0);
     }
 
     #[test]
-    fn zero_attack_is_instant_and_dt_is_clamped() {
-        assert_eq!(coefficient(0.01, 0.0), 1.0);
-        assert_eq!(coefficient(10.0, 1000.0), coefficient(MAX_DT, 1000.0));
-        assert_eq!(coefficient(-1.0, 50.0), 0.0);
-    }
-
-    #[test]
-    fn peaks_hold_then_fall() {
-        let ph = PeakHold {
-            hold_ms: 100.0,
-            fall_per_s: 1.0,
-        };
-        let (mut p, mut h) = ([0.0f32], [0.0f32]);
-        ph.apply(&mut p, &mut h, &[0.8], 0.01);
-        for _ in 0..9 {
-            ph.apply(&mut p, &mut h, &[0.0], 0.01);
-        }
-        assert_eq!(p[0], 0.8, "still holding at 90 ms");
-        for _ in 0..21 {
-            ph.apply(&mut p, &mut h, &[0.0], 0.01);
-        }
-        assert!(p[0] < 0.8 && p[0] > 0.55, "{}", p[0]);
+    fn decays_flush_to_exact_zero() {
+        let (mut v, mut s) = ([0.0f32], [1e-21f32]);
+        apply(0.5, 0.5, &mut v, &mut s);
+        assert_eq!(s[0], 0.0);
     }
 }

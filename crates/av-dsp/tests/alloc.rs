@@ -42,17 +42,22 @@ fn allocations() -> usize {
 
 #[test]
 fn steady_state_hops_never_allocate() {
-    // The layered default (4 layers, N = 16,384), six layers, and a classic window with bins.
+    // The layered default (4 layers, N = 32,768), six layers, a classic window, and every
+    // optional stage on (features, weighting, cubic + RMS warp, frame-peak reference).
+    let mut full = SpectrumConfig::default().settings;
+    full.spectral_features = true;
+    full.weighting = av_protocol::config::Weighting::A;
+    full.warp_interp = av_protocol::config::WarpInterp::Cubic;
+    full.warp_aggregation = av_protocol::config::WarpAggregation::Rms;
+    full.db_reference = av_protocol::config::DbReference::FramePeak;
+    full.output_bins = 8192;
     let configs = [
         SpectrumConfig::default(),
         SpectrumConfig::layered(6, 32_768),
         SpectrumConfig::single(2048, 2048, 512),
+        SpectrumConfig::new(full, 48_000),
     ];
-    for (cfg, emit_bins) in configs
-        .into_iter()
-        .flat_map(|c| [(c.clone(), false), (c, true)])
-    {
-        let cfg = SpectrumConfig { emit_bins, ..cfg };
+    for (n, cfg) in configs.into_iter().enumerate() {
         let mut plans = PlanCache::default();
         let mut a = Analyzer::new(cfg.clone(), plans.get(cfg.fft_size)).unwrap();
         let hop: Vec<f32> = (0..cfg.hop_samples)
@@ -72,7 +77,7 @@ fn steady_state_hops_never_allocate() {
         assert_eq!(
             after - before,
             0,
-            "allocations in 500 steady-state hops (emit_bins={emit_bins})"
+            "allocations in 500 steady-state hops (config {n})"
         );
     }
 }

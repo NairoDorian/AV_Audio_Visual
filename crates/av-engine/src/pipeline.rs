@@ -9,6 +9,7 @@
 use std::time::Instant;
 
 use av_dsp::Analyzer;
+use av_protocol::config::ChannelMode;
 use av_protocol::frame::{FrameFlags, FrameHeader};
 
 use crate::slot_ring::SlotWriter;
@@ -21,6 +22,9 @@ pub struct HopStats {
     pub max_us: f64,
     /// Largest raw input sample over the window.
     pub input_peak: f32,
+    /// From the newest hop.
+    pub peak_hz: f32,
+    pub features: Option<[f32; 8]>,
 }
 
 #[derive(Debug)]
@@ -88,13 +92,22 @@ impl Pipeline {
         self.analyzer.reset_continuity();
     }
 
-    /// Downmixes interleaved samples to mono and analyses every complete hop.
+    /// Reduces interleaved samples to the analysed channel (FFT CHOP "Channels": the mono mix
+    /// is an average, so more channels do not read louder) and analyses every complete hop.
     pub fn feed(&mut self, interleaved: &[f32], writer: &mut SlotWriter) -> usize {
         let ch = self.channels;
         let mut published = 0;
         let scale = 1.0 / ch as f32;
+        let mode = self.analyzer.config().settings.channel_mode;
+        let pick = match mode {
+            ChannelMode::Right => 1.min(ch - 1),
+            _ => 0,
+        };
         for frame in interleaved.chunks_exact(ch) {
-            self.hop[self.filled] = frame.iter().sum::<f32>() * scale;
+            self.hop[self.filled] = match mode {
+                ChannelMode::MonoMix => frame.iter().sum::<f32>() * scale,
+                ChannelMode::Left | ChannelMode::Right => frame[pick],
+            };
             self.filled += 1;
             self.frames_consumed += 1;
             if self.filled == self.hop.len() {
@@ -124,6 +137,8 @@ impl Pipeline {
         let started = Instant::now();
         let frame = self.analyzer.process(&self.hop, dt);
         let input_peak = frame.input_peak;
+        self.stats.peak_hz = frame.peak_hz;
+        self.stats.features = frame.features.map(|f| f.to_array());
         let mut flags = FrameFlags::empty();
         flags.set(FrameFlags::SILENT, frame.silent);
         flags.set(FrameFlags::CLIPPED, frame.clipped);
@@ -136,7 +151,7 @@ impl Pipeline {
             flags,
             generation: self.generation,
         };
-        writer.publish(&header, frame.bars, frame.bins);
+        writer.publish(&header, frame.bars, None);
         let us = started.elapsed().as_secs_f64() * 1e6;
         self.stats.hops += 1;
         self.stats.total_us += us;

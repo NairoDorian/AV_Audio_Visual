@@ -1,24 +1,17 @@
 [
   {
-    "default": 4.0,
-    "integer": true,
-    "max": 6.0,
-    "min": 1.0,
-    "path": "analysis.layers"
-  },
-  {
-    "default": 32768.0,
-    "integer": true,
-    "max": 131072.0,
-    "min": 1024.0,
-    "path": "analysis.fftSize"
-  },
-  {
-    "default": 15.0,
+    "default": 24000.0,
     "integer": false,
-    "max": 60.0,
-    "min": 0.0,
-    "path": "analysis.kaiserBeta"
+    "max": 192000.0,
+    "min": 100.0,
+    "path": "analysis.displayMaxHz"
+  },
+  {
+    "default": 1024.0,
+    "integer": true,
+    "max": 65537.0,
+    "min": 8.0,
+    "path": "analysis.outputBins"
   },
   {
     "default": 0.9300000071525574,
@@ -26,6 +19,48 @@
     "max": 1.0,
     "min": 0.0,
     "path": "analysis.warpBlend"
+  },
+  {
+    "default": 20.0,
+    "integer": false,
+    "max": 5000.0,
+    "min": 1.0,
+    "path": "analysis.logFloorHz"
+  },
+  {
+    "default": 1024.0,
+    "integer": true,
+    "max": 65536.0,
+    "min": 16.0,
+    "path": "analysis.windowSamples"
+  },
+  {
+    "default": 21.33300018310547,
+    "integer": false,
+    "max": 5000.0,
+    "min": 0.5,
+    "path": "analysis.windowMs"
+  },
+  {
+    "default": 4.0,
+    "integer": true,
+    "max": 6.0,
+    "min": 1.0,
+    "path": "analysis.layers"
+  },
+  {
+    "default": 512.0,
+    "integer": true,
+    "max": 16384.0,
+    "min": 32.0,
+    "path": "analysis.hopSamples"
+  },
+  {
+    "default": 32768.0,
+    "integer": true,
+    "max": 131072.0,
+    "min": 1024.0,
+    "path": "analysis.fftSize"
   },
   {
     "default": 24.0,
@@ -65,9 +100,58 @@
   {
     "default": 1.0,
     "integer": false,
-    "max": 2.0,
+    "max": 5.0,
     "min": 0.0,
     "path": "analysis.eq.amount"
+  },
+  {
+    "default": 15.0,
+    "integer": false,
+    "max": 100.0,
+    "min": 0.0,
+    "path": "analysis.kaiserBeta"
+  },
+  {
+    "default": 80.0,
+    "integer": false,
+    "max": 160.0,
+    "min": 10.0,
+    "path": "analysis.dbRange"
+  },
+  {
+    "default": 1500.0,
+    "integer": false,
+    "max": 60000.0,
+    "min": 10.0,
+    "path": "analysis.agcReleaseMs"
+  },
+  {
+    "default": 0.0,
+    "integer": false,
+    "max": 0.99,
+    "min": 0.0,
+    "path": "analysis.attack"
+  },
+  {
+    "default": 0.0,
+    "integer": false,
+    "max": 0.99,
+    "min": 0.0,
+    "path": "analysis.release"
+  },
+  {
+    "default": 15.0,
+    "integer": false,
+    "max": 2000.0,
+    "min": 0.0,
+    "path": "analysis.attackMs"
+  },
+  {
+    "default": 250.0,
+    "integer": false,
+    "max": 5000.0,
+    "min": 0.0,
+    "path": "analysis.releaseMs"
   },
   {
     "default": 0.0,
@@ -75,55 +159,6 @@
     "max": 400.0,
     "min": -100.0,
     "path": "audio.avOffsetMs"
-  },
-  {
-    "default": 48.0,
-    "integer": true,
-    "max": 128.0,
-    "min": 1.0,
-    "path": "analysis.barCount"
-  },
-  {
-    "default": 20.0,
-    "integer": false,
-    "max": 2000.0,
-    "min": 10.0,
-    "path": "analysis.minHz"
-  },
-  {
-    "default": 24000.0,
-    "integer": false,
-    "max": 24000.0,
-    "min": 500.0,
-    "path": "analysis.maxHz"
-  },
-  {
-    "default": -72.0,
-    "integer": false,
-    "max": -20.0,
-    "min": -120.0,
-    "path": "analysis.dbFloor"
-  },
-  {
-    "default": 0.0,
-    "integer": false,
-    "max": 12.0,
-    "min": -40.0,
-    "path": "analysis.dbCeiling"
-  },
-  {
-    "default": 12.0,
-    "integer": false,
-    "max": 1000.0,
-    "min": 0.0,
-    "path": "analysis.attackMs"
-  },
-  {
-    "default": 220.0,
-    "integer": false,
-    "max": 5000.0,
-    "min": 1.0,
-    "path": "analysis.releaseMs"
   },
   {
     "default": 60.0,

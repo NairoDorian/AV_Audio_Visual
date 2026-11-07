@@ -3,6 +3,7 @@
   "id": "bars",
   "name": "Bars",
   "style": "bars",
+  "barCount": 64,
   "barWidth": 0.7,
   "cornerRadius": 1.0,
   "opacity": 1.0,

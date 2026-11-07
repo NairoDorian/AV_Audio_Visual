@@ -21,7 +21,18 @@ pub struct StatusSnapshot {
     pub channels: u16,
     pub fft_size: u32,
     pub hop_samples: u32,
+    /// Output bins per frame.
     pub bar_count: u32,
+    pub layers: u32,
+    /// Window of the first layer, samples.
+    pub window_samples: u32,
+    /// Layers run one per core.
+    pub parallel: bool,
+    /// Frequency of the loudest output bin in the newest frame.
+    pub peak_hz: f32,
+    /// Spectral features of the newest frame, when enabled (centroid Hz, rolloff Hz, flatness,
+    /// flux, RMS dBFS, bass dB, mid dB, high dB).
+    pub features: Option<[f32; 8]>,
     pub generation: u32,
     pub clock: ClockSource,
     /// Frames published since the engine started.

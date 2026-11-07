@@ -195,3 +195,84 @@ button.primary {
   border-color: var(--accent);
   color: #fff;
 }
+
+.presets select {
+  min-width: 180px;
+}
+
+.summary {
+  margin-top: 10px;
+  font-family: var(--mono);
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 14px 0 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+  padding: 6px 10px;
+}
+
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.params {
+  display: grid;
+  gap: 8px;
+}
+
+.param {
+  display: grid;
+  grid-template-columns: 190px 1fr 150px;
+  align-items: center;
+  gap: 12px;
+}
+
+.param.inactive {
+  opacity: 0.45;
+}
+
+.param-wide {
+  grid-column: 2 / 4;
+}
+
+.param-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.param-value input {
+  width: 100%;
+  font: 13px var(--mono);
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+
+.unit {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .param {
+    grid-template-columns: 1fr;
+  }
+  .param-wide {
+    grid-column: auto;
+  }
+}

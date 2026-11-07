@@ -11,7 +11,8 @@
 export const HEADER_WORDS = 8;
 export const HEADER_BYTES = HEADER_WORDS * 4;
 export const WIRE_VERSION = 1;
-export const MAX_BARS = 128;
+/** `MAX_OUTPUT_BINS`: 131,072 / 2 + 1, so Raw RFFT Bins always fit. */
+export const MAX_BARS = 65_537;
 export const MAX_FFT_SIZE = 8192;
 export const FEATURE_COUNT = 8;
 

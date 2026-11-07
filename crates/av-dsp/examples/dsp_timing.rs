@@ -8,11 +8,6 @@ use std::time::Instant;
 use av_dsp::{Analyzer, PlanCache, SpectrumConfig};
 
 fn measure(name: &str, cfg: SpectrumConfig, plans: &mut PlanCache) {
-    let cfg = SpectrumConfig {
-        emit_bins: true,
-        bar_count: 128,
-        ..cfg
-    };
     let mut a = Analyzer::new(cfg.clone(), plans.get(cfg.fft_size)).unwrap();
     let mut phase = 0.0f32;
     let mut hop = vec![0.0f32; cfg.hop_samples];
@@ -43,7 +38,7 @@ fn measure(name: &str, cfg: SpectrumConfig, plans: &mut PlanCache) {
 
 fn main() {
     let mut plans = PlanCache::default();
-    println!("preset                         N     p50 us   p99 us   max us");
+    println!("config                         N     p50 us   p99 us   max us");
     measure(
         "classic 1024 / 256",
         SpectrumConfig::single(1024, 1024, 256),
@@ -59,6 +54,7 @@ fn main() {
         SpectrumConfig::single(8192, 8192, 1024),
         &mut plans,
     );
+    measure("app default", SpectrumConfig::default(), &mut plans);
     for layers in 2..=6 {
         for fft in [16_384usize, 32_768, 65_536] {
             let cfg = SpectrumConfig::layered(layers, fft);

@@ -1,5 +1,6 @@
 import { createSignal, For, Show, Match, Switch, onSettled } from "solid-js";
 import Preview from "./features/visualizer/Preview";
+import AnalysisPanel from "./features/analysis/AnalysisPanel";
 import {
   getAppInfo,
   getAudioStatus,
@@ -8,7 +9,6 @@ import {
   patchConfig,
   startSource,
   stopSource,
-  type AnalysisConfig,
   getActiveScene,
   listScenes,
   type AppConfig,
@@ -24,13 +24,13 @@ const SECTIONS: ReadonlyArray<{ id: SectionId; label: string; blurb: string }> =
   { id: "visualizer", label: "Visualizer", blurb: "Live preview and analysis settings." },
   { id: "audio", label: "Audio", blurb: "Source and capture status." },
   { id: "displays", label: "Displays", blurb: "Background, taskbar and overlay placements." },
-  { id: "performance", label: "Performance", blurb: "FFT preset, frame rate and idle policy." },
+  { id: "performance", label: "Performance", blurb: "Frame rate and idle policy." },
   { id: "diagnostics", label: "Diagnostics", blurb: "Counters, timings and build facts." },
 ];
 
 const fmt = (n: number | undefined, digits = 0) => (n === undefined ? "-" : n.toFixed(digits));
 
-/** Below this the input is too quiet to show on the default -72 dB display floor. */
+/** Below this the input is too quiet to read well on the default 80 dB range. */
 const QUIET_DBFS = -60;
 
 function levelLabel(s: AudioStatus | null): string {
@@ -54,6 +54,8 @@ export default function App() {
   const [notice, setNotice] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [filePath, setFilePath] = createSignal("");
+  // Preview-only display count (ephemeral UI state, never persisted).
+  const [displayCount, setDisplayCount] = createSignal(64);
   const tauri = inTauri();
 
   const report = (e: unknown) => setError(String(e));
@@ -66,7 +68,10 @@ export default function App() {
     getAppInfo().then(setInfo, report);
     getConfig().then(setConfig, report);
     listScenes().then(setScenes, report);
-    getActiveScene().then(setScene, report);
+    getActiveScene().then((s) => {
+      setScene(s);
+      setDisplayCount(s.style === "concentric" ? s.ring.bins : s.barCount);
+    }, report);
     const poll = () => getAudioStatus().then(setStatus, report);
     void poll();
     const timer = setInterval(poll, STATUS_POLL_MS);
@@ -93,13 +98,15 @@ export default function App() {
     try {
       const applied = await patchConfig({ scene: id });
       setConfig(applied.config);
-      setScene(await getActiveScene());
+      const s = await getActiveScene();
+      setScene(s);
+      setDisplayCount(s.style === "concentric" ? s.ring.bins : s.barCount);
     } catch (e) {
       report(e);
     }
   };
 
-  const editAnalysis = async (patch: Partial<AnalysisConfig>) => {
+  const editAnalysis = async (patch: Record<string, unknown>) => {
     try {
       const applied = await patchConfig({ analysis: patch });
       setConfig(applied.config);
@@ -154,150 +161,59 @@ export default function App() {
                   </p>
                 }
               >
-                <Preview scene={scene()} onError={setError} />
+                <Preview scene={scene()} displayCount={displayCount()} onError={setError} />
               </Show>
             </section>
             <Show when={config()}>
               {(c) => (
-                <section class="card form">
-                  <label>
-                    <span>Scene</span>
-                    <select value={c().scene} onChange={(e) => chooseScene(e.currentTarget.value)}>
-                      <For each={scenes()}>{(s) => <option value={s.id}>{s.name}</option>}</For>
-                    </select>
-                  </label>
-                  <label>
-                    <span>Bars</span>
-                    <input
-                      type="range"
-                      min="8"
-                      max="128"
-                      value={c().analysis.barCount}
-                      onChange={(e) => editAnalysis({ barCount: +e.currentTarget.value })}
-                    />
-                    <output>{c().analysis.barCount}</output>
-                  </label>
-                  <label>
-                    <span>FFT preset</span>
-                    <select
-                      value={c().analysis.preset}
-                      onChange={(e) =>
-                        editAnalysis({ preset: e.currentTarget.value as AnalysisConfig["preset"] })
-                      }
-                    >
-                      <option value="layered">Layered Super FFT (1,024 x 2^k)</option>
-                      <option value="lowLatency">Low latency (1024 / 256)</option>
-                      <option value="default">Default (2048 / 512)</option>
-                      <option value="precision">Precision (8192 / 1024)</option>
-                      <option value="lowPower">Low power (1024 / 512)</option>
-                    </select>
-                  </label>
-                  <Show when={c().analysis.preset === "layered"}>
+                <>
+                  <section class="card form">
                     <label>
-                      <span>Layers</span>
+                      <span>Scene</span>
+                      <select
+                        value={c().scene}
+                        onChange={(e) => chooseScene(e.currentTarget.value)}
+                      >
+                        <For each={scenes()}>{(s) => <option value={s.id}>{s.name}</option>}</For>
+                      </select>
+                      <span />
+                    </label>
+                    <label>
+                      <span>{scene()?.style === "concentric" ? "Ring bins" : "Display bars"}</span>
                       <input
                         type="range"
-                        min="1"
-                        max="6"
-                        value={c().analysis.layers}
-                        onChange={(e) => editAnalysis({ layers: +e.currentTarget.value })}
-                      />
-                      <output>{1024 << (c().analysis.layers - 1)}</output>
-                    </label>
-                  </Show>
-                  <label>
-                    <span>FFT size</span>
-                    <select
-                      value={String(c().analysis.fftSize)}
-                      onChange={(e) => editAnalysis({ fftSize: +e.currentTarget.value })}
-                    >
-                      <For each={[8192, 16384, 32768, 65536, 131072]}>
-                        {(n) => (
-                          <option value={String(n)}>{n.toLocaleString()} (zero-padded)</option>
+                        min="0"
+                        max="1000"
+                        value={Math.round(
+                          (Math.log(displayCount() / 4) / Math.log(4096 / 4)) * 1000,
                         )}
-                      </For>
-                    </select>
-                  </label>
-                  <label>
-                    <span>Window</span>
-                    <select
-                      value={c().analysis.window}
-                      onChange={(e) =>
-                        editAnalysis({ window: e.currentTarget.value as AnalysisConfig["window"] })
-                      }
-                    >
-                      <option value="kaiser">Kaiser (beta {c().analysis.kaiserBeta})</option>
-                      <option value="hann">Hann</option>
-                      <option value="blackmanHarris">Blackman-Harris</option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>Warp blend</span>
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.01"
-                      value={c().analysis.warpBlend}
-                      onChange={(e) => editAnalysis({ warpBlend: +e.currentTarget.value })}
-                    />
-                    <output>{c().analysis.warpBlend.toFixed(2)}</output>
-                  </label>
-                  <label class="check">
-                    <input
-                      type="checkbox"
-                      checked={c().analysis.eq.enabled && c().analysis.eq.highShelf}
-                      onChange={(e) =>
-                        editAnalysis({
-                          eq: {
-                            ...c().analysis.eq,
-                            enabled: true,
-                            highShelf: e.currentTarget.checked,
-                          },
-                        })
-                      }
-                    />
-                    <span>
-                      High shelf +{c().analysis.eq.highGainDb} dB at {c().analysis.eq.highCutoffHz}{" "}
-                      Hz
-                    </span>
-                  </label>
-                  <label>
-                    <span>Band layout</span>
-                    <select
-                      value={c().analysis.layout}
-                      onChange={(e) =>
-                        editAnalysis({ layout: e.currentTarget.value as AnalysisConfig["layout"] })
-                      }
-                    >
-                      <option value="log">Logarithmic</option>
-                      <option value="mel">Mel</option>
-                      <option value="linear">Linear</option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>Release (ms)</span>
-                    <input
-                      type="range"
-                      min="20"
-                      max="1000"
-                      value={c().analysis.releaseMs}
-                      onChange={(e) => editAnalysis({ releaseMs: +e.currentTarget.value })}
-                    />
-                    <output>{fmt(c().analysis.releaseMs)}</output>
-                  </label>
-                  <label class="check">
-                    <input
-                      type="checkbox"
-                      checked={c().analysis.autoGain}
-                      onChange={(e) => editAnalysis({ autoGain: e.currentTarget.checked })}
-                    />
-                    <span>Auto-gain</span>
-                  </label>
+                        onInput={(e) =>
+                          setDisplayCount(
+                            Math.round(4 * Math.pow(4096 / 4, +e.currentTarget.value / 1000)),
+                          )
+                        }
+                      />
+                      <output>{displayCount()}</output>
+                    </label>
+                    <p class="muted small">
+                      Each display bar shows the loudest of the output bins it covers (preview only;
+                      scene editing arrives with scene files).
+                    </p>
+                  </section>
+                  <AnalysisPanel
+                    analysis={c().analysis}
+                    sampleRate={status()?.source?.sampleRate ?? 48_000}
+                    onEdit={editAnalysis}
+                    onApplied={(applied) => {
+                      setConfig(applied.config);
+                      setNotice(null);
+                    }}
+                    onError={report}
+                  />
                   <Show when={notice()}>
                     <p class="muted small">{notice()}</p>
                   </Show>
-                </section>
+                </>
               )}
             </Show>
           </Match>
@@ -379,8 +295,34 @@ export default function App() {
                 <dd>
                   {fmt(status()?.fftSize)} / {fmt(status()?.hopSamples)}
                 </dd>
-                <dt>Bars</dt>
-                <dd>{fmt(status()?.barCount)}</dd>
+                <dt>Layers / first window</dt>
+                <dd>
+                  {fmt(status()?.layers)} / {fmt(status()?.windowSamples)}
+                  {status()?.parallel ? " (parallel)" : ""}
+                </dd>
+                <dt>Output bins</dt>
+                <dd>{fmt(status()?.outputBins)}</dd>
+                <dt>Peak</dt>
+                <dd>{fmt(status()?.peakHz, 1)} Hz</dd>
+                <Show when={status()?.features}>
+                  {(f) => (
+                    <>
+                      <dt>Centroid / rolloff</dt>
+                      <dd>
+                        {fmt(f().centroidHz)} / {fmt(f().rolloffHz)} Hz
+                      </dd>
+                      <dt>Flatness / flux</dt>
+                      <dd>
+                        {fmt(f().flatness, 3)} / {fmt(f().flux, 3)}
+                      </dd>
+                      <dt>RMS / bass / mid / high</dt>
+                      <dd>
+                        {fmt(f().rmsDb, 1)} / {fmt(f().bassDb, 1)} / {fmt(f().midDb, 1)} /{" "}
+                        {fmt(f().highDb, 1)} dB
+                      </dd>
+                    </>
+                  )}
+                </Show>
                 <dt>Generation</dt>
                 <dd>{fmt(status()?.generation)}</dd>
                 <dt>Frames</dt>

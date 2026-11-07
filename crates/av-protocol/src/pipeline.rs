@@ -27,7 +27,7 @@ pub struct Migration {
 
 /// One numeric field: its JSON path, range, and typed accessors. The table is the single source
 /// for sanitizing and for the settings parity fixture.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub struct Limit<T> {
     pub path: &'static str,
     pub min: f64,
@@ -36,6 +36,14 @@ pub struct Limit<T> {
     pub get: fn(&T) -> f64,
     pub set: fn(&mut T, f64),
 }
+
+// Manual impls: a derive would demand `T: Copy` although only fn pointers are stored.
+impl<T> Clone for Limit<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<T> Copy for Limit<T> {}
 
 /// Builds a [`Limit`] row: `limit!(Doc, "json.path", min, max, int|float, field.path)`.
 macro_rules! limit {
@@ -99,10 +107,14 @@ impl Report {
     pub fn changed(&self) -> bool {
         *self != Self::default()
     }
-    /// True when the original should be backed up before it is overwritten: data was lost or
-    /// cannot be understood by this build.
+    /// True when the original should be backed up before it is overwritten: data was lost,
+    /// cannot be understood by this build, or was rewritten by a migration (an older build can
+    /// still read the backup).
     pub fn needs_backup(&self) -> bool {
-        self.corrupt || self.newer_version.is_some() || !self.healed.is_empty()
+        self.corrupt
+            || self.newer_version.is_some()
+            || self.migrated_from.is_some()
+            || !self.healed.is_empty()
     }
 }
 

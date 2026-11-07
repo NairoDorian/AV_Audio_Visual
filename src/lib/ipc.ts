@@ -12,9 +12,6 @@ export interface AppInfo {
   debug: boolean;
 }
 
-export type FftPreset = "layered" | "lowLatency" | "default" | "precision" | "lowPower";
-export type BandLayout = "log" | "linear" | "mel";
-
 export interface EqSettings {
   enabled: boolean;
   highShelf: boolean;
@@ -27,25 +24,50 @@ export interface EqSettings {
   amount: number;
 }
 
-/** The subset of `AppConfig` the Studio edits today (crates/av-protocol/src/config.rs). */
+/** `AnalysisConfig` schema v2 (crates/av-protocol/src/config.rs): every FFT CHOP parameter. */
 export interface AnalysisConfig {
-  preset: FftPreset;
+  channelMode: "monoMix" | "left" | "right";
+  rawBins: boolean;
+  scale: "log" | "mel" | "erb" | "bark" | "chroma" | "linear" | "melog";
+  displayMaxHz: number;
+  outputBinsMode: "fixed" | "auto";
+  outputBins: number;
+  warpBlend: number;
+  warpInterp: "linear" | "cubic";
+  warpAggregation: "off" | "peak" | "rms";
+  logFloorHz: number;
+  windowLengthMode: "samples" | "milliseconds";
+  windowSamples: number;
+  windowMs: number;
   layers: number;
+  hopSamples: number;
+  zeroPadding: boolean;
   /** One FFT size for every layer (zero-padding), a power of two. */
   fftSize: number;
-  window: "kaiser" | "hann" | "blackmanHarris";
-  kaiserBeta: number;
-  barCount: number;
-  layout: BandLayout;
-  warpBlend: number;
   eq: EqSettings;
-  minHz: number;
-  maxHz: number;
-  dbFloor: number;
-  dbCeiling: number;
+  window: "kaiser" | "hann" | "hamming" | "blackman" | "blackmanHarris" | "rectangular";
+  kaiserBetaMode: "manual" | "auto";
+  kaiserBeta: number;
+  weighting: "off" | "a" | "c" | "itu468";
+  magnitudeNorm: "coherentGain" | "fullScale";
+  loudness: "db" | "off";
+  dbReference: "framePeak" | "dbfs" | "agc";
+  dbRange: number;
+  agcReleaseMs: number;
+  ballistics: boolean;
+  ballisticsMode: "coefficient" | "milliseconds";
+  attack: number;
+  release: number;
   attackMs: number;
   releaseMs: number;
-  autoGain: boolean;
+  spectralFeatures: boolean;
+  parallelLayers: "auto" | "always" | "never";
+}
+
+export interface PresetInfo {
+  id: string;
+  name: string;
+  builtin: boolean;
 }
 
 export interface AppConfig {
@@ -83,6 +105,8 @@ export interface Scene {
   id: string;
   name: string;
   style: VisualStyle;
+  /** Display bars of the bar styles, peak-pooled from the output bins. */
+  barCount: number;
   barWidth: number;
   cornerRadius: number;
   opacity: number;
@@ -108,7 +132,12 @@ export interface AudioStatus {
   running: boolean;
   fftSize: number;
   hopSamples: number;
-  barCount: number;
+  outputBins: number;
+  layers: number;
+  windowSamples: number;
+  parallel: boolean;
+  peakHz: number;
+  features: SpectralFeatures | null;
   generation: number;
   frames: number;
   dspUsAvg: number;
@@ -121,6 +150,17 @@ export interface AudioStatus {
   inputPeakDbfs: number;
   clock: string;
   capture: "running" | "finished" | "failed" | "stopped";
+}
+
+export interface SpectralFeatures {
+  centroidHz: number;
+  rolloffHz: number;
+  flatness: number;
+  flux: number;
+  rmsDb: number;
+  bassDb: number;
+  midDb: number;
+  highDb: number;
 }
 
 /** True when the Studio runs inside the Tauri webview, false in a plain browser tab. */
@@ -138,6 +178,10 @@ export const stopSource = () => invoke<void>("stop_source");
 export const getAudioStatus = () => invoke<AudioStatus>("get_audio_status");
 export const listScenes = () => invoke<Scene[]>("list_scenes");
 export const getActiveScene = () => invoke<Scene>("get_active_scene");
+export const listPresets = () => invoke<PresetInfo[]>("list_presets");
+export const savePreset = (name: string) => invoke<PresetInfo>("save_preset", { name });
+export const applyPreset = (id: string) => invoke<Applied>("apply_preset", { id });
+export const deletePreset = (id: string) => invoke<void>("delete_preset", { id });
 
 /** The Studio's single frame bus (one poller per window). */
 export const frameBus = new FrameBus({

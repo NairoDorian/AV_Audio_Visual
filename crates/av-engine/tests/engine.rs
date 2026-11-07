@@ -24,6 +24,14 @@ fn tone(freq: f32, ch: u16, seconds: f32, amp: f32) -> Vec<f32> {
         .collect()
 }
 
+/// The default analysis with `n` output bins and hop `hop`.
+fn bins(n: u32, hop: u32) -> SpectrumConfig {
+    let mut s = SpectrumConfig::default().settings;
+    s.output_bins = n;
+    s.hop_samples = hop;
+    SpectrumConfig::new(s, SR)
+}
+
 fn analyzer(cfg: SpectrumConfig) -> Analyzer {
     Analyzer::new(cfg.clone(), PlanCache::default().get(cfg.fft_size)).unwrap()
 }
@@ -78,11 +86,7 @@ fn a_swap_changes_generation_and_shape_without_touching_the_stream() {
     let mut p = Pipeline::new(analyzer(SpectrumConfig::default()), 1, 1, 0);
     p.feed(&tone(440.0, 1, 0.1, 0.5), &mut writer);
     let before = reader.latest_sequence().unwrap();
-    let narrower = SpectrumConfig {
-        bar_count: 16,
-        hop_samples: 256,
-        ..SpectrumConfig::default()
-    };
+    let narrower = bins(16, 256);
     p.swap(analyzer(narrower), 2);
     p.feed(&tone(440.0, 1, 0.1, 0.5), &mut writer);
     let mut f = FrameCopy::default();
@@ -149,12 +153,7 @@ fn the_engine_runs_a_file_source_in_real_time() {
     );
 
     // Reconfiguring bumps the generation without restarting anything.
-    let generation = engine
-        .reconfigure(SpectrumConfig {
-            bar_count: 32,
-            ..SpectrumConfig::default()
-        })
-        .unwrap();
+    let generation = engine.reconfigure(bins(32, 512)).unwrap();
     assert_eq!(generation, 2);
     let deadline = Instant::now() + Duration::from_secs(2);
     loop {
@@ -200,23 +199,18 @@ fn the_preview_encoder_answers_header_only_when_nothing_changed() {
     let empty = wire::decode(enc.encode(&reader, None, false)).unwrap();
     assert!(empty.is_header_only());
 
-    let mut p = Pipeline::new(
-        analyzer(SpectrumConfig {
-            emit_bins: true,
-            ..SpectrumConfig::single(2048, 2048, 512)
-        }),
-        1,
-        1,
-        0,
-    );
+    let mut p = Pipeline::new(analyzer(SpectrumConfig::single(2048, 2048, 512)), 1, 1, 0);
     p.feed(&tone(440.0, 1, 0.05, 0.5), &mut writer);
     let seq = reader.latest_sequence().unwrap();
 
     let full = enc.encode(&reader, None, true).to_vec();
     let d = wire::decode(&full).unwrap();
     assert_eq!(d.header.sequence, seq);
-    assert_eq!(d.bars().len(), 48);
-    assert_eq!(d.bins().unwrap().len(), 1025);
+    assert_eq!(d.bars().len(), 1024);
+    assert!(
+        d.bins().is_none(),
+        "the analyzer publishes output bins only"
+    );
 
     let same = wire::decode(enc.encode(&reader, Some(seq), true)).unwrap();
     assert!(same.is_header_only());

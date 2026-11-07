@@ -14,7 +14,8 @@ use realfft::num_complex::Complex32;
 use crate::window::{self, WindowKind};
 
 /// One layer: window the newest `len` samples, zero-pad to the FFT size, transform, and keep the
-/// calibrated magnitude `|X| * 2 / sum(w)` (a full-scale sine at a bin centre reads 1.0).
+/// calibrated magnitude `|X| * 2 / sum(w)` (a full-scale sine at a bin centre reads 1.0) of the
+/// bins that are read (the warp's `max_linear_index`; the rest stay zero and cost nothing).
 pub struct LayerUnit {
     window: Vec<f32>,
     amp_scale: f32,
@@ -23,6 +24,7 @@ pub struct LayerUnit {
     spectrum: Vec<Complex32>,
     scratch: Vec<Complex32>,
     magnitude: Vec<f32>,
+    bins_used: usize,
 }
 
 impl std::fmt::Debug for LayerUnit {
@@ -35,8 +37,14 @@ impl std::fmt::Debug for LayerUnit {
 }
 
 impl LayerUnit {
-    /// Allocates every buffer. `window_len <= fft.len()`.
-    pub fn new(window_len: usize, kind: WindowKind, fft: Arc<dyn RealToComplex<f32>>) -> Self {
+    /// Allocates every buffer. `window_len <= fft.len()`; `bins_used` is clamped to the
+    /// transform's `N/2 + 1`.
+    pub fn new(
+        window_len: usize,
+        kind: WindowKind,
+        fft: Arc<dyn RealToComplex<f32>>,
+        bins_used: usize,
+    ) -> Self {
         let mut window = vec![0.0; window_len];
         kind.fill(&mut window);
         let amp_scale = (2.0 / window::sum(&window)) as f32;
@@ -48,6 +56,7 @@ impl LayerUnit {
             spectrum: fft.make_output_vec(),
             scratch: fft.make_scratch_vec(),
             magnitude: vec![0.0; bins],
+            bins_used: bins_used.clamp(1, bins),
             fft,
         }
     }
@@ -85,17 +94,22 @@ impl LayerUnit {
         {
             // Lengths are fixed at construction, so this cannot happen; contribute nothing.
             self.magnitude.fill(0.0);
-            return &self.magnitude;
+            return &self.magnitude[..self.bins_used];
         }
         let k = self.amp_scale;
-        for (m, c) in self.magnitude.iter_mut().zip(&self.spectrum) {
-            *m = c.norm() * k;
+        let used = self.bins_used;
+        for (m, c) in self.magnitude[..used]
+            .iter_mut()
+            .zip(&self.spectrum[..used])
+        {
+            *m = (c.re * c.re + c.im * c.im).sqrt() * k;
         }
-        &self.magnitude
+        &self.magnitude[..used]
     }
 
+    /// The bins [`LayerUnit::compute`] fills.
     pub fn magnitude(&self) -> &[f32] {
-        &self.magnitude
+        &self.magnitude[..self.bins_used]
     }
 
     /// The normalized magnitude response of this layer's window (1 at DC), for the exact
@@ -137,6 +151,10 @@ pub fn newest(ring: &[f32], write_pos: usize, len: usize) -> (&[f32], &[f32]) {
 pub trait LayerRunner: Send {
     fn run(&mut self, history: &[f32], write_pos: usize, sum: &mut [f32]);
     fn layer_count(&self) -> usize;
+    /// True when the layers run on more than one thread (status only).
+    fn is_parallel(&self) -> bool {
+        false
+    }
 }
 
 /// Layers one after another on the calling thread.
