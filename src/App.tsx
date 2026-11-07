@@ -9,9 +9,12 @@ import {
   startSource,
   stopSource,
   type AnalysisConfig,
+  getActiveScene,
+  listScenes,
   type AppConfig,
   type AppInfo,
   type AudioStatus,
+  type Scene,
 } from "./lib/ipc";
 import { NAME } from "./lib/identity";
 
@@ -36,6 +39,8 @@ export default function App() {
   const [info, setInfo] = createSignal<AppInfo | null>(null);
   const [status, setStatus] = createSignal<AudioStatus | null>(null);
   const [config, setConfig] = createSignal<AppConfig | null>(null);
+  const [scenes, setScenes] = createSignal<Scene[]>([]);
+  const [scene, setScene] = createSignal<Scene | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [filePath, setFilePath] = createSignal("");
@@ -50,6 +55,8 @@ export default function App() {
     }
     getAppInfo().then(setInfo, report);
     getConfig().then(setConfig, report);
+    listScenes().then(setScenes, report);
+    getActiveScene().then(setScene, report);
     const poll = () => getAudioStatus().then(setStatus, report);
     void poll();
     const timer = setInterval(poll, STATUS_POLL_MS);
@@ -72,6 +79,16 @@ export default function App() {
   };
 
   /** Optimistic edit; Rust answers with the applied (sanitized) value. */
+  const chooseScene = async (id: string) => {
+    try {
+      const applied = await patchConfig({ scene: id });
+      setConfig(applied.config);
+      setScene(await getActiveScene());
+    } catch (e) {
+      report(e);
+    }
+  };
+
   const editAnalysis = async (patch: Partial<AnalysisConfig>) => {
     try {
       const applied = await patchConfig({ analysis: patch });
@@ -127,12 +144,18 @@ export default function App() {
                   </p>
                 }
               >
-                <Preview onError={setError} />
+                <Preview scene={scene()} onError={setError} />
               </Show>
             </section>
             <Show when={config()}>
               {(c) => (
                 <section class="card form">
+                  <label>
+                    <span>Scene</span>
+                    <select value={c().scene} onChange={(e) => chooseScene(e.currentTarget.value)}>
+                      <For each={scenes()}>{(s) => <option value={s.id}>{s.name}</option>}</For>
+                    </select>
+                  </label>
                   <label>
                     <span>Bars</span>
                     <input
@@ -152,10 +175,35 @@ export default function App() {
                         editAnalysis({ preset: e.currentTarget.value as AnalysisConfig["preset"] })
                       }
                     >
+                      <option value="layered">Layered Super FFT (1,024 x 2^k)</option>
                       <option value="lowLatency">Low latency (1024 / 256)</option>
                       <option value="default">Default (2048 / 512)</option>
                       <option value="precision">Precision (8192 / 1024)</option>
                       <option value="lowPower">Low power (1024 / 512)</option>
+                    </select>
+                  </label>
+                  <Show when={c().analysis.preset === "layered"}>
+                    <label>
+                      <span>Layers</span>
+                      <input
+                        type="range"
+                        min="1"
+                        max="6"
+                        value={c().analysis.layers}
+                        onChange={(e) => editAnalysis({ layers: +e.currentTarget.value })}
+                      />
+                      <output>{1024 << (c().analysis.layers - 1)}</output>
+                    </label>
+                  </Show>
+                  <label>
+                    <span>Zero-pad</span>
+                    <select
+                      value={String(c().analysis.zeroPad)}
+                      onChange={(e) => editAnalysis({ zeroPad: +e.currentTarget.value })}
+                    >
+                      <option value="1">x1</option>
+                      <option value="2">x2</option>
+                      <option value="4">x4</option>
                     </select>
                   </label>
                   <label>

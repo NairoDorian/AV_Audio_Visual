@@ -129,7 +129,9 @@ pub fn run() {
             commands::start_source,
             commands::stop_source,
             commands::get_audio_status,
-            commands::get_frame
+            commands::get_frame,
+            commands::list_scenes,
+            commands::get_active_scene
         ])
         .setup(move |app| {
             // 7. Let the panic hook reach the app.

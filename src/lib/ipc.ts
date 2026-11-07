@@ -12,12 +12,14 @@ export interface AppInfo {
   debug: boolean;
 }
 
-export type FftPreset = "lowLatency" | "default" | "precision" | "lowPower";
+export type FftPreset = "layered" | "lowLatency" | "default" | "precision" | "lowPower";
 export type BandLayout = "log" | "linear" | "mel";
 
 /** The subset of `AppConfig` the Studio edits today (crates/av-protocol/src/config.rs). */
 export interface AnalysisConfig {
   preset: FftPreset;
+  layers: number;
+  zeroPad: number;
   barCount: number;
   layout: BandLayout;
   minHz: number;
@@ -45,6 +47,30 @@ export interface LoadReport {
 export interface Applied {
   config: AppConfig;
   report: LoadReport;
+}
+
+export type VisualStyle = "bars" | "mirroredBars" | "line" | "area" | "concentric";
+
+export interface Ring {
+  bins: number;
+  floor: number;
+  gain: number;
+  radius: number;
+  bars: boolean;
+  inner: boolean;
+}
+
+/** `Scene` v1 (crates/av-protocol/src/scene.rs). */
+export interface Scene {
+  formatVersion: number;
+  id: string;
+  name: string;
+  style: VisualStyle;
+  barWidth: number;
+  cornerRadius: number;
+  opacity: number;
+  palette: string[];
+  ring: Ring;
 }
 
 export type SourceRequest = { kind: "demo" } | { kind: "file"; path: string };
@@ -86,6 +112,8 @@ export const startSource = (request: SourceRequest) =>
   invoke<SourceInfo>("start_source", { request });
 export const stopSource = () => invoke<void>("stop_source");
 export const getAudioStatus = () => invoke<AudioStatus>("get_audio_status");
+export const listScenes = () => invoke<Scene[]>("list_scenes");
+export const getActiveScene = () => invoke<Scene>("get_active_scene");
 
 /** The Studio's single frame bus (one poller per window). */
 export const frameBus = new FrameBus({

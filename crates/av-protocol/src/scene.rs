@@ -17,6 +17,39 @@ pub enum VisualStyle {
     MirroredBars,
     Line,
     Area,
+    /// The concentric ring of the ZER0 circular scope (docs/super-fft.md section 3).
+    Concentric,
+}
+
+/// Parameters of the concentric style. Present in every scene so switching style keeps them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Ring {
+    /// Display bins the bars are peak-pooled to; the ring has twice as many points.
+    pub bins: u32,
+    /// Values at or below the floor draw nothing (applied before the gain).
+    pub floor: f32,
+    /// Fixed display multiplier after the floor; never a dynamic normalization.
+    pub gain: f32,
+    /// Ring radius as a fraction of the half-size of the view.
+    pub radius: f32,
+    /// Radial bars (true) or two closed loops (false).
+    pub bars: bool,
+    /// Draw the inner branch.
+    pub inner: bool,
+}
+
+impl Default for Ring {
+    fn default() -> Self {
+        Self {
+            bins: 96,
+            floor: 0.35,
+            gain: 1.0,
+            radius: 0.5,
+            bars: true,
+            inner: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -34,6 +67,7 @@ pub struct Scene {
     pub opacity: f32,
     /// Gradient stops, bottom to top, `#rrggbb` or `#rrggbbaa`.
     pub palette: Vec<String>,
+    pub ring: Ring,
 }
 
 impl Default for Scene {
@@ -47,14 +81,41 @@ impl Default for Scene {
             corner_radius: 1.0,
             opacity: 1.0,
             palette: vec!["#3d6bff".into(), "#8a5cff".into(), "#ff5ca8".into()],
+            ring: Ring::default(),
         }
     }
+}
+
+/// Built-in scenes, generated from Rust (README section 4.8). User scenes arrive with scene files.
+pub fn builtin_scenes() -> Vec<Scene> {
+    vec![
+        Scene::default(),
+        Scene {
+            id: "concentric".into(),
+            name: "Concentric".into(),
+            style: VisualStyle::Concentric,
+            palette: vec!["#5ce1ff".into(), "#8a5cff".into(), "#ff5ca8".into()],
+            ..Scene::default()
+        },
+    ]
+}
+
+/// The built-in scene with this id, or the default scene.
+pub fn builtin(id: &str) -> Scene {
+    builtin_scenes()
+        .into_iter()
+        .find(|s| s.id == id)
+        .unwrap_or_default()
 }
 
 pub static LIMITS: &[Limit<Scene>] = &[
     limit!(Scene, "barWidth", 0.05, 1, float, bar_width),
     limit!(Scene, "cornerRadius", 0, 1, float, corner_radius),
     limit!(Scene, "opacity", 0, 1, float, opacity),
+    limit!(Scene, "ring.bins", 12, 240, int, ring.bins),
+    limit!(Scene, "ring.floor", 0, 0.9, float, ring.floor),
+    limit!(Scene, "ring.gain", 0.05, 8, float, ring.gain),
+    limit!(Scene, "ring.radius", 0.1, 0.5, float, ring.radius),
 ];
 
 /// `#rgb`, `#rrggbb` or `#rrggbbaa`, case-insensitive; returns the canonical lower-case

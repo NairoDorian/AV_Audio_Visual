@@ -10,5 +10,13 @@
     "#3d6bff",
     "#8a5cff",
     "#ff5ca8"
-  ]
+  ],
+  "ring": {
+    "bins": 96,
+    "floor": 0.35,
+    "gain": 1.0,
+    "radius": 0.5,
+    "bars": true,
+    "inner": true
+  }
 }

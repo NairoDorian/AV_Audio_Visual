@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use av_protocol::{AppConfig, Report};
+use av_protocol::{AppConfig, Report, Scene};
 use serde::Serialize;
 
 use crate::audio::{AudioService, AudioStatus, SourceInfo, SourceRequest};
@@ -98,4 +98,16 @@ pub async fn get_frame(
     Ok(tauri::ipc::Response::new(
         audio.frame(last_sequence, want_bins),
     ))
+}
+
+/// Built-in scenes (generated in Rust; user scene files arrive in Phase 3).
+#[tauri::command]
+pub fn list_scenes() -> Vec<Scene> {
+    av_protocol::scene::builtin_scenes()
+}
+
+/// The scene the config selects, falling back to the default scene.
+#[tauri::command]
+pub fn get_active_scene(store: tauri::State<'_, Arc<ConfigStore>>) -> Scene {
+    av_protocol::scene::builtin(&store.get().scene)
 }
