@@ -1,0 +1,3 @@
+[test]
+# TypeScript unit and parity tests live under test/; never scan references/.
+root = "test"

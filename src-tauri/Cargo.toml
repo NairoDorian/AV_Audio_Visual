@@ -40,5 +40,12 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-appender.workspace = true
 
+
+
+# Linux: wry's webview is webkit2gtk (GTK 3), so tauri needs its `gtk3` feature there. GTK 4 is a
+# later decision (blueprint section 1.2, P1.5b).
+[target.'cfg(target_os = "linux")'.dependencies]
+tauri = { workspace = true, features = ["gtk3"] }
+
 [lints]
 workspace = true

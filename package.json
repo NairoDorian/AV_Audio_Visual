@@ -11,7 +11,19 @@
     "lint": "oxlint src scripts test",
     "format": "prettier --write . && cargo fmt --all",
     "format:check": "prettier --check . && cargo fmt --all -- --check",
-    "test": "bun test"
+    "test": "bun test",
+    "lint:rust": "cargo clippy --workspace --all-targets -- -D warnings",
+    "test:rust": "cargo test --workspace",
+    "check:crates": "bun scripts/check-crate-graph.ts",
+    "meta:sync": "bun scripts/app-meta.ts",
+    "meta:check": "bun scripts/app-meta.ts --check",
+    "repomix": "bun scripts/repomix.ts",
+    "repomix:check": "bun scripts/repomix.ts --check",
+    "precommit": "bun scripts/pre-commit.ts",
+    "precommit:full": "bun scripts/pre-commit.ts --full",
+    "precommit:routine": "bun scripts/pre-commit.ts --routine",
+    "hooks:install": "git config core.hooksPath .githooks",
+    "hooks:uninstall": "git config --unset core.hooksPath"
   },
   "dependencies": {
     "@solidjs/web": "2.0.0-rc.21",
@@ -24,6 +36,7 @@
     "bun-types": "1.4.4-canary.20261107T140830",
     "oxlint": "1.92.0",
     "prettier": "4.0.0-alpha.13",
+    "repomix": "1.18.1",
     "typescript": "7.1.0-dev.20261107.1",
     "vite": "8.3.6"
   }

@@ -1,5 +1,6 @@
 import { createSignal, For, Show, Match, Switch, onSettled } from "solid-js";
 import { getAppInfo, inTauri, type AppInfo } from "./lib/ipc";
+import { NAME } from "./lib/identity";
 
 type SectionId = "visualizer" | "audio" | "displays" | "performance" | "diagnostics";
 
@@ -34,7 +35,7 @@ export default function App() {
   return (
     <div class="shell">
       <aside class="sidebar">
-        <div class="brand">AV_AudioVisual</div>
+        <div class="brand">{NAME}</div>
         <nav>
           <For each={SECTIONS}>
             {(s) => (

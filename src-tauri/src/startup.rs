@@ -10,7 +10,7 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 use crate::cli::CliArgs;
 use crate::paths::DataDirs;
-use crate::{commands, logging, panic, preflight};
+use crate::{commands, identity, logging, panic, preflight};
 
 /// Label of the Studio window, the only webview (ADR-013). `capabilities/studio.json` grants
 /// permissions to this label alone.
@@ -136,7 +136,7 @@ fn create_studio(app: &mut tauri::App, visible: bool) -> tauri::Result<()> {
         return Ok(());
     }
     WebviewWindowBuilder::new(app, STUDIO_LABEL, WebviewUrl::App("index.html".into()))
-        .title("AV_AudioVisual Studio")
+        .title(identity::STUDIO_TITLE)
         .inner_size(1100.0, 720.0)
         .min_inner_size(820.0, 520.0)
         .visible(visible)

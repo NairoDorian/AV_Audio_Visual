@@ -4,5 +4,11 @@
   "rules": {
     "no-console": ["warn", { "allow": ["warn", "error", "info"] }]
   },
+  "overrides": [
+    {
+      "files": ["scripts/**", "test/**"],
+      "rules": { "no-console": "off" }
+    }
+  ],
   "ignorePatterns": ["dist", "node_modules", "src/lib/bindings.ts"]
 }
