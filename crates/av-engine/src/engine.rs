@@ -162,7 +162,19 @@ fn build(
     cfg.sample_rate = format.sample_rate;
     cfg.max_hz = cfg.max_hz.min(format.sample_rate as f32 / 2.0);
     let plan = plans.get(cfg.fft_size);
-    Analyzer::new(cfg, plan)
+    Analyzer::with_runner(cfg, plan, layer_runner)
+}
+
+/// Layers from this count up run one per core: measured 1.85x faster at the default (4 layers,
+/// N = 32,768) and 2.5x at 6 layers; with 2 layers the hand-off costs what it saves
+/// (`examples/layer_timing.rs`, docs/performance.md).
+pub const PARALLEL_FROM_LAYERS: usize = 3;
+
+fn layer_runner(units: Vec<av_dsp::LayerUnit>) -> Box<dyn av_dsp::LayerRunner> {
+    if units.len() >= PARALLEL_FROM_LAYERS {
+        return Box::new(crate::parallel::ParallelLayers::new(units));
+    }
+    Box::new(av_dsp::SequentialLayers::new(units))
 }
 
 struct Worker {
@@ -254,6 +266,7 @@ impl Worker {
             dropped_samples: counters.dropped_samples.load(Ordering::Relaxed),
             silent,
             starved_hops,
+            input_peak_dbfs: 20.0 * stats.input_peak.max(1e-10).log10(),
             updated_us: monotonic_us(),
         };
         self.status.store(Arc::new(snapshot));

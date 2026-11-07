@@ -7,7 +7,7 @@ use av_dsp::{Analyzer, PlanCache, SpectrumConfig};
 const SR: u32 = 48_000;
 
 fn contrast(layers: usize, sep_bins: usize) -> f64 {
-    let mut cfg = SpectrumConfig::layered(layers, 1);
+    let mut cfg = SpectrumConfig::layered(layers, 32_768);
     cfg.fft_size = 32_768;
     cfg.auto_gain = false;
     let mut a = Analyzer::new(cfg.clone(), PlanCache::default().get(32_768)).unwrap();

@@ -45,7 +45,7 @@ fn steady_state_hops_never_allocate() {
     // The layered default (4 layers, N = 16,384), six layers, and a classic window with bins.
     let configs = [
         SpectrumConfig::default(),
-        SpectrumConfig::layered(6, 1),
+        SpectrumConfig::layered(6, 32_768),
         SpectrumConfig::single(2048, 2048, 512),
     ];
     for (cfg, emit_bins) in configs

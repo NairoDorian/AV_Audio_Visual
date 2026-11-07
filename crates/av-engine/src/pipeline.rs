@@ -19,6 +19,8 @@ pub struct HopStats {
     pub hops: u64,
     pub total_us: f64,
     pub max_us: f64,
+    /// Largest raw input sample over the window.
+    pub input_peak: f32,
 }
 
 #[derive(Debug)]
@@ -121,6 +123,7 @@ impl Pipeline {
 
         let started = Instant::now();
         let frame = self.analyzer.process(&self.hop, dt);
+        let input_peak = frame.input_peak;
         let mut flags = FrameFlags::empty();
         flags.set(FrameFlags::SILENT, frame.silent);
         flags.set(FrameFlags::CLIPPED, frame.clipped);
@@ -138,5 +141,6 @@ impl Pipeline {
         self.stats.hops += 1;
         self.stats.total_us += us;
         self.stats.max_us = self.stats.max_us.max(us);
+        self.stats.input_peak = self.stats.input_peak.max(input_peak);
     }
 }

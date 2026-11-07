@@ -33,9 +33,11 @@ settings except the number of audio samples it windows:
 
 - takes the **newest** `W_k = 1024 * 2^(k-1)` samples (all layers end at the same sample, so the
   short layer keeps the attack sharp),
-- applies the same window shape (Hann by default, Kaiser from the CHOP),
-- is **zero-padded to one common FFT size `N`** (`N >= W_max`, times the zero-pad factor 1, 2 or
-  4), so every layer's bins land on the same frequencies and can be averaged bin by bin,
+- applies the same window shape (Kaiser beta 15, the CHOP default),
+- is **zero-padded to one common FFT size `N`** (default 32,768, a power of two at least the
+  largest window). `N` is a setting of its own, **not** a multiple of each window: every layer
+  uses the same `N`, so every layer's bins land on the same frequencies and are averaged bin by
+  bin. Every other setting is identical across layers too; only the window length differs,
 - produces a magnitude spectrum `|X_k|`, divided by `2^(k-1)`.
 
 The layered spectrum is the average: `M = (1/L) * sum_k |X_k| / 2^(k-1)`.
@@ -67,28 +69,53 @@ squared and summed over every bin (`ENBW_eff`). With one layer this reduces to t
 | :-- | :-- | :-- |
 | `preset` | `layered` plus the classic single-window presets | `layered` |
 | `layers` | 1-6 (6 reaches 32,768) | 4 (1,024-8,192) |
-| `zeroPad` | 1, 2, 4 (multiplies `N` beyond the largest window) | 2 |
+| `fftSize` | 8,192-131,072, power of two, >= largest window; the same for every layer | 32,768 |
 | base window | 1,024 (fixed by the design) | 1,024 |
 | hop | 512 at 48 kHz (93.75 analyses/s) | 512 |
-| window shape | Hann, Blackman-Harris, Kaiser(beta) | Hann |
+| window shape | Kaiser(beta), Hann, Blackman-Harris | Kaiser, beta 15 (CHOP) |
+| axis | Log, 20 Hz-24 kHz, `warpBlend` 0-1 mixes linear and log bar edges | Log, warp blend 0.93 |
+| pre-analysis EQ | high shelf (gain, cutoff), low shelf, Q, amount | high shelf +24 dB at 1 kHz, Q 0.707, no low shelf |
+
+Source of truth for every default: the FFT CHOP (`Parameters.h` `struct Values`) and ZER0's
+port of it (`Handy_V2 src-tauri/src/live_fft/dsp.rs`, MIT), with the product owner's overrides
+(32K FFT size, warp blend 0.93, the +24 dB high shelf on). ZER0 may lag the CHOP; the CHOP wins.
 
 ### 1.5 Optimizations (measured before they become defaults)
 
-1. **Cost budget.** `L` real FFTs of size `N` per hop. Target: p99 < 2 ms at 6 layers with
-   `zeroPad = 1` (N = 32,768) on the dev machine; record every preset in `docs/performance.md`.
-2. **Layer decimation** (option): layer `k` recomputes every `2^(k-1)` hops and its last
+1. **Cost budget.** `L` real FFTs of size `N` per hop. Target: p99 < 2 ms at 6 layers and
+   N = 65,536 on the dev machine; record every configuration in `docs/performance.md`.
+2. **Parallel layers (done).** Layer 0 on the analysis thread, every other layer on its own
+   `av-layer-<k>` thread for the analyzer's lifetime; per hop a park/unpark hand-off of
+   preallocated jobs, results summed in layer order (bit-identical to sequential, allocation
+   gate green). Used from 3 layers up. Measured p99: default (4 layers, N = 32,768) 874 -> 350 us,
+   6 layers at 65,536 2,630 -> 784 us (`cargo run --release -p av-engine --example layer_timing`).
+   The analyzer itself stays thread-free: the runner seam (`LayerRunner`) lives in `av-dsp`, the
+   threads in `av-engine`.
+3. **Layer decimation** (option): layer `k` recomputes every `2^(k-1)` hops and its last
    spectrum is reused in between. Long layers change slowly; this divides their cost without
    touching the 1,024 layer's reactivity. A/B visually before enabling.
-3. **Per-layer FFT size** (option): layer `k` uses `N_k = W_k * zeroPad` and is averaged per
-   *bar* (bands integrate in Hz) instead of per bin. Cuts cost to about `2/L` of the common-N
-   form; needs a calibration test that bars match the common-N result within 0.5 dB.
-4. **Warm everything**: one plan per distinct `N` from the plan cache, one precomputed window per
+4. **Magnitudes only where read**: compute `|X|` only up to the highest bin the bands (and the
+   display warp) read, as ZER0 does; AVX2 kernels for dB and warp where an A/B shows a gain.
+5. **Warm everything**: one plan per distinct `N` from the plan cache, one precomputed window per
    layer, one shared history ring of `W_max` samples, scratch reused. No allocation per hop
    (the allocation gate covers layered mode).
-5. **No parallel fan-out on the audio path** (CHOP study section 9). If 6 layers ever miss the
-   budget, decimation comes first; a second worker is the last resort.
+6. **Worker priority**: MMCSS "Pro Audio" for the analysis and layer threads on Windows (CHOP
+   `AsyncAnalysis.cpp`), behind a platform module. Never parallel work inside the audio callback.
 
 ### 1.6 Measured resolution (2026-11-07)
+
+With the default Kaiser beta 15 (wider main lobe, -110 dB sidelobes), same method:
+
+| Separation | L=1 | L=2 | L=3 | L=4 | L=5 | L=6 |
+| --: | --: | --: | --: | --: | --: | --: |
+| 5.9 Hz | -0.01 | -0.02 | -0.06 | -0.10 | 0.00 | 0.79 |
+| 8.8 Hz | -0.02 | -0.05 | -0.12 | -0.06 | 0.53 | 1.79 |
+| 11.7 Hz | -0.04 | -0.09 | -0.13 | 0.06 | 1.06 | 2.43 |
+| 17.6 Hz | -0.09 | -0.18 | -0.08 | 0.63 | 2.23 | 3.67 |
+| 29.3 Hz | -0.22 | -0.26 | 0.31 | 2.10 | 3.88 | 5.36 |
+| 58.6 Hz | -0.56 | 0.81 | 3.39 | 5.79 | 7.67 | 9.22 |
+
+With Hann (narrower main lobe, higher sidelobes):
 
 Dip contrast between two equal tones near 60 Hz (peak power over midpoint power, dB), FFT size
 32,768 for every row, `cargo run --release -p av-dsp --example layer_resolution`:

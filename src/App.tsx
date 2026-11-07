@@ -30,6 +30,16 @@ const SECTIONS: ReadonlyArray<{ id: SectionId; label: string; blurb: string }> =
 
 const fmt = (n: number | undefined, digits = 0) => (n === undefined ? "-" : n.toFixed(digits));
 
+/** Below this the input is too quiet to show on the default -72 dB display floor. */
+const QUIET_DBFS = -60;
+
+function levelLabel(s: AudioStatus | null): string {
+  if (!s?.source) return "idle";
+  if (s.capture === "failed") return "device lost";
+  if (s.silent) return "silent";
+  return s.inputPeakDbfs < QUIET_DBFS ? "quiet" : "audible";
+}
+
 /** Status is low-rate data: polled at 1 Hz, never per frame. */
 const STATUS_POLL_MS = 1000;
 
@@ -196,15 +206,61 @@ export default function App() {
                     </label>
                   </Show>
                   <label>
-                    <span>Zero-pad</span>
+                    <span>FFT size</span>
                     <select
-                      value={String(c().analysis.zeroPad)}
-                      onChange={(e) => editAnalysis({ zeroPad: +e.currentTarget.value })}
+                      value={String(c().analysis.fftSize)}
+                      onChange={(e) => editAnalysis({ fftSize: +e.currentTarget.value })}
                     >
-                      <option value="1">x1</option>
-                      <option value="2">x2</option>
-                      <option value="4">x4</option>
+                      <For each={[8192, 16384, 32768, 65536, 131072]}>
+                        {(n) => (
+                          <option value={String(n)}>{n.toLocaleString()} (zero-padded)</option>
+                        )}
+                      </For>
                     </select>
+                  </label>
+                  <label>
+                    <span>Window</span>
+                    <select
+                      value={c().analysis.window}
+                      onChange={(e) =>
+                        editAnalysis({ window: e.currentTarget.value as AnalysisConfig["window"] })
+                      }
+                    >
+                      <option value="kaiser">Kaiser (beta {c().analysis.kaiserBeta})</option>
+                      <option value="hann">Hann</option>
+                      <option value="blackmanHarris">Blackman-Harris</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Warp blend</span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                      value={c().analysis.warpBlend}
+                      onChange={(e) => editAnalysis({ warpBlend: +e.currentTarget.value })}
+                    />
+                    <output>{c().analysis.warpBlend.toFixed(2)}</output>
+                  </label>
+                  <label class="check">
+                    <input
+                      type="checkbox"
+                      checked={c().analysis.eq.enabled && c().analysis.eq.highShelf}
+                      onChange={(e) =>
+                        editAnalysis({
+                          eq: {
+                            ...c().analysis.eq,
+                            enabled: true,
+                            highShelf: e.currentTarget.checked,
+                          },
+                        })
+                      }
+                    />
+                    <span>
+                      High shelf +{c().analysis.eq.highGainDb} dB at {c().analysis.eq.highCutoffHz}{" "}
+                      Hz
+                    </span>
                   </label>
                   <label>
                     <span>Band layout</span>
@@ -297,10 +353,10 @@ export default function App() {
                     <dd>
                       {status()?.capture === "failed"
                         ? "device lost: pick the source again"
-                        : status()?.silent
-                          ? "silent"
-                          : "audible"}
+                        : levelLabel(status())}
                     </dd>
+                    <dt>Input peak</dt>
+                    <dd>{fmt(status()?.inputPeakDbfs, 1)} dBFS</dd>
                   </dl>
                 )}
               </Show>
@@ -351,7 +407,10 @@ export default function App() {
         <span>Source: {status()?.source?.label ?? "none"}</span>
         <span>DSP: {fmt(status()?.dspUsAvg, 1)} us</span>
         <span>Frames: {fmt(status()?.frames)}</span>
-        <span>{status()?.source ? (status()?.silent ? "silent" : "audible") : "idle"}</span>
+        <span>
+          {levelLabel(status())}
+          {status()?.source ? `, in ${fmt(status()?.inputPeakDbfs, 0)} dBFS` : ""}
+        </span>
       </footer>
     </div>
   );

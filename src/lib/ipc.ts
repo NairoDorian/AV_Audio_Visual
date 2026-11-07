@@ -15,13 +15,30 @@ export interface AppInfo {
 export type FftPreset = "layered" | "lowLatency" | "default" | "precision" | "lowPower";
 export type BandLayout = "log" | "linear" | "mel";
 
+export interface EqSettings {
+  enabled: boolean;
+  highShelf: boolean;
+  highGainDb: number;
+  highCutoffHz: number;
+  lowShelf: boolean;
+  lowGainDb: number;
+  lowCutoffHz: number;
+  q: number;
+  amount: number;
+}
+
 /** The subset of `AppConfig` the Studio edits today (crates/av-protocol/src/config.rs). */
 export interface AnalysisConfig {
   preset: FftPreset;
   layers: number;
-  zeroPad: number;
+  /** One FFT size for every layer (zero-padding), a power of two. */
+  fftSize: number;
+  window: "kaiser" | "hann" | "blackmanHarris";
+  kaiserBeta: number;
   barCount: number;
   layout: BandLayout;
+  warpBlend: number;
+  eq: EqSettings;
   minHz: number;
   maxHz: number;
   dbFloor: number;
@@ -100,6 +117,8 @@ export interface AudioStatus {
   droppedSamples: number;
   silent: boolean;
   starvedHops: number;
+  /** Peak raw input over the last status window, dBFS. */
+  inputPeakDbfs: number;
   clock: string;
   capture: "running" | "finished" | "failed" | "stopped";
 }

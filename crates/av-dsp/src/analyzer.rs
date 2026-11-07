@@ -1,27 +1,37 @@
 //! The analyzer (pre-plan section 5.3): hop in, bars out.
 //!
-//! `process` runs DC blocker -> sliding history -> for each layer: window the newest
-//! `window_samples * 2^(k-1)` samples, zero-pad to `fft_size`, real FFT, magnitude scaled by
-//! `2 / sum(w_k)` -> average over layers -> calibrated bin power -> per-bar power -> weighting ->
-//! dB -> auto-gain -> normalization -> ballistics -> peak hold.
+//! `process` runs DC blocker -> shelf EQ (new samples only) -> sliding history -> layers (each
+//! windows the newest `window_samples * 2^(k-1)` samples, zero-pads to the one common
+//! `fft_size`, transforms, and reports `|X| * 2 / sum(w_k)`) -> per-bin average over layers ->
+//! calibrated bin power -> per-bar power -> weighting -> dB -> auto-gain -> normalization ->
+//! ballistics -> peak hold.
 //!
 //! Layers (ADR-020, `docs/super-fft.md`): with one layer this is a classic zero-padded FFT. With
 //! more, each layer doubles the window and its magnitude is divided by its window sum, which is
 //! the `1 / 2^(k-1)` window-length normalization up to one global constant, so every layer reads
-//! the same level for the same tone and the per-bin average is calibrated (full-scale sine = 0 dB). Every buffer is allocated in `new`; `process` never allocates, locks, logs or plans.
-//! FFT plans come from a [`PlanCache`] the engine owns and builds off the analysis thread.
+//! the same level for the same tone and the per-bin average is calibrated (full-scale sine =
+//! 0 dB). The layers run through a [`LayerRunner`]: sequentially here, or one core per layer with
+//! the parallel runner in `av-engine`.
+//!
+//! Every buffer is allocated in `new`; `process` never allocates, locks, logs or plans. FFT plans
+//! come from a [`PlanCache`] the engine owns and builds off the analysis thread.
+//!
+//! Defaults follow the FFT CHOP (the primary source of truth for this analyzer) with the product
+//! owner's overrides: Kaiser beta 15, Log axis 20 Hz-24 kHz with warp blend 0.93, FFT size 32,768
+//! for every layer, high shelf +24 dB at 1 kHz.
 
 use std::sync::Arc;
 
-use av_protocol::config::{AnalysisConfig, BandLayout, FftPreset};
-use realfft::num_complex::Complex32;
+use av_protocol::config::{AnalysisConfig, BandLayout, FftPreset, WindowShape};
 use realfft::{RealFftPlanner, RealToComplex};
 
 use crate::ballistics::{Ballistics, PeakHold};
 use crate::bands::{BandMap, BandSpec, LevelRef};
 use crate::dc::DcBlocker;
+use crate::eq::{EqConfig, ShelfEq};
+use crate::layers::{LayerRunner, LayerUnit, SequentialLayers, newest};
 use crate::weighting::Weighting;
-use crate::window::{self, WindowKind};
+use crate::window::WindowKind;
 
 /// Peak level below which a window counts as silent (-100 dBFS).
 pub const SILENCE_THRESHOLD: f32 = 1e-5;
@@ -31,13 +41,15 @@ pub const AUTO_GAIN_MIN_RANGE_DB: f32 = 24.0;
 pub const AUTO_GAIN_HEADROOM_DB: f32 = 3.0;
 /// How slowly the tracked peak falls after loud passages.
 pub const AUTO_GAIN_RELEASE_MS: f32 = 4000.0;
-/// Largest analysis FFT (32,768-sample window x zero-pad 4). Frames from FFTs above the wire
-/// limit (`av_protocol::frame::MAX_FFT_SIZE`) carry bars only.
+/// Largest analysis FFT. Frames from FFTs above the wire limit
+/// (`av_protocol::frame::MAX_FFT_SIZE`) carry bars only.
 pub const MAX_FFT_SIZE: usize = 131_072;
 /// Largest window any layer may use.
 pub const MAX_WINDOW: usize = 32_768;
 pub const MAX_LAYERS: usize = 6;
 pub const MAX_BARS: usize = av_protocol::frame::MAX_BARS;
+/// The layered preset's first window (ADR-020).
+pub const BASE_WINDOW: usize = 1024;
 
 /// Everything the analyzer needs. Changing any field means building a new analyzer (a
 /// generation bump at the next hop boundary), never mutating this one.
@@ -48,14 +60,17 @@ pub struct SpectrumConfig {
     pub window_samples: usize,
     /// 1 = classic single window; up to 6, each doubling the window.
     pub layers: usize,
-    /// Common FFT size; `>= largest window`, the rest is zero-padding.
+    /// The one FFT size of every layer; `>= largest window`, the rest is zero-padding.
     pub fft_size: usize,
     pub hop_samples: usize,
     pub window: WindowKind,
     pub layout: BandLayout,
+    /// 0 = linear bar edges, 1 = the layout's perceptual edges.
+    pub warp_blend: f32,
     pub bar_count: usize,
     pub min_hz: f32,
     pub max_hz: f32,
+    pub eq: EqConfig,
     pub weighting: Weighting,
     pub level_ref: LevelRef,
     pub db_floor: f32,
@@ -65,7 +80,7 @@ pub struct SpectrumConfig {
     pub auto_gain: bool,
     pub peak_hold_ms: f32,
     pub peak_fall_per_s: f32,
-    /// Also compute normalized per-bin levels (preview spectrogram).
+    /// Also compute normalized per-bin levels (preview spectrogram), when within the wire limit.
     pub emit_bins: bool,
 }
 
@@ -78,23 +93,39 @@ impl SpectrumConfig {
         } else {
             1
         };
-        let pad = match a.zero_pad {
-            0 | 1 => 1,
-            2 => 2,
-            _ => 4,
-        };
         let largest = (window as usize) << (layers - 1);
+        let e = &a.eq;
         Self {
             sample_rate,
             window_samples: window as usize,
             layers,
-            fft_size: largest * pad,
+            fft_size: (a.fft_size as usize)
+                .next_power_of_two()
+                .clamp(largest, MAX_FFT_SIZE),
             hop_samples: hop as usize,
-            window: WindowKind::Hann,
+            window: match a.window {
+                WindowShape::Kaiser => WindowKind::Kaiser {
+                    beta: a.kaiser_beta,
+                },
+                WindowShape::Hann => WindowKind::Hann,
+                WindowShape::BlackmanHarris => WindowKind::BlackmanHarris,
+            },
             layout: a.layout,
+            warp_blend: a.warp_blend,
             bar_count: a.bar_count as usize,
             min_hz: a.min_hz,
             max_hz: a.max_hz,
+            eq: EqConfig {
+                enabled: e.enabled,
+                high_shelf: e.high_shelf,
+                high_gain_db: e.high_gain_db,
+                high_cutoff_hz: e.high_cutoff_hz,
+                low_shelf: e.low_shelf,
+                low_gain_db: e.low_gain_db,
+                low_cutoff_hz: e.low_cutoff_hz,
+                q: e.q,
+                amount: e.amount,
+            },
             weighting: Weighting::Z,
             level_ref: LevelRef::ThirdOctave,
             db_floor: a.db_floor,
@@ -108,25 +139,26 @@ impl SpectrumConfig {
         }
     }
 
-    /// A classic single-window analysis (tests, benches, explicit presets).
+    /// A classic single-window analysis without EQ (tests, benches, explicit presets).
     pub fn single(window_samples: usize, fft_size: usize, hop_samples: usize) -> Self {
         Self {
             window_samples,
             layers: 1,
             fft_size,
             hop_samples,
+            eq: EqConfig::OFF,
             ..Self::default()
         }
     }
 
-    /// A layered analysis with a 1,024 base window and the given zero-pad factor.
-    pub fn layered(layers: usize, zero_pad: usize) -> Self {
-        let window_samples = 1024;
+    /// A layered analysis (1,024 base window, hop 512) at one common FFT size, without EQ.
+    pub fn layered(layers: usize, fft_size: usize) -> Self {
         Self {
-            window_samples,
+            window_samples: BASE_WINDOW,
             layers,
-            fft_size: (window_samples << (layers.max(1) - 1)) * zero_pad,
+            fft_size,
             hop_samples: 512,
+            eq: EqConfig::OFF,
             ..Self::default()
         }
     }
@@ -138,6 +170,11 @@ impl SpectrumConfig {
     /// The window of the longest layer.
     pub fn largest_window(&self) -> usize {
         self.window_samples << (self.layers.clamp(1, MAX_LAYERS) - 1)
+    }
+
+    /// Window length of layer `k` (0-based).
+    pub fn layer_window(&self, k: usize) -> usize {
+        self.window_samples << k
     }
 
     pub fn validate(&self) -> Result<(), DspError> {
@@ -167,6 +204,14 @@ impl SpectrumConfig {
             return Err(DspError::InvalidRange);
         }
         Ok(())
+    }
+
+    /// Builds the layer units for this config (allocates; off the hot path). Hand them to
+    /// [`Analyzer::with_runner`] wrapped in any [`LayerRunner`].
+    pub fn build_units(&self, fft: &Arc<dyn RealToComplex<f32>>) -> Vec<LayerUnit> {
+        (0..self.layers)
+            .map(|k| LayerUnit::new(self.layer_window(k), self.window, fft.clone()))
+            .collect()
     }
 }
 
@@ -204,12 +249,10 @@ impl std::fmt::Display for DspError {
             Self::InvalidBarCount(n) => write!(f, "bar count {n} must be in 1..={MAX_BARS}"),
             Self::InvalidSampleRate(r) => write!(f, "sample rate {r} is too low"),
             Self::InvalidRange => write!(f, "db_ceiling must be above db_floor"),
-            Self::PlanMismatch { plan, fft_size } => {
-                write!(
-                    f,
-                    "FFT plan of length {plan} handed to a {fft_size}-point analyzer"
-                )
-            }
+            Self::PlanMismatch { plan, fft_size } => write!(
+                f,
+                "FFT plan of length {plan} handed to a {fft_size}-point analyzer"
+            ),
         }
     }
 }
@@ -257,19 +300,17 @@ pub struct FrameData<'a> {
     pub clipped: bool,
     /// The dB value mapped to the top of the display this hop (auto-gain aware).
     pub ceiling_db: f32,
+    /// Largest absolute raw input sample of this hop (before DC blocker and EQ), 0..1+.
+    pub input_peak: f32,
 }
 
 pub struct Analyzer {
     cfg: SpectrumConfig,
-    fft: Arc<dyn RealToComplex<f32>>,
-    layers: Vec<Layer>,
+    runner: Box<dyn LayerRunner>,
     /// Sum of the layers' calibrated magnitudes for this hop.
     magnitude: Vec<f32>,
     history: Vec<f32>,
     write_pos: usize,
-    fft_in: Vec<f32>,
-    spectrum: Vec<Complex32>,
-    scratch: Vec<Complex32>,
     bin_power: Vec<f32>,
     bin_level: Vec<f32>,
     bands: BandMap,
@@ -280,17 +321,12 @@ pub struct Analyzer {
     peaks: Vec<f32>,
     peak_held: Vec<f32>,
     dc: DcBlocker,
+    eq: ShelfEq,
     ballistics: Ballistics,
     peak_hold: PeakHold,
     gain_env_db: f32,
     clipped: bool,
-}
-
-/// One FFT layer: its window and the amplitude scale `2 / sum(w)` (a full-scale sine at a bin
-/// centre reads amplitude 1 in every layer).
-struct Layer {
-    window: Vec<f32>,
-    amp_scale: f32,
+    input_peak: f32,
 }
 
 impl std::fmt::Debug for Analyzer {
@@ -302,8 +338,19 @@ impl std::fmt::Debug for Analyzer {
 }
 
 impl Analyzer {
-    /// Builds every buffer, the window and the band map. Allocates; call off the hot path.
+    /// Builds every buffer, the layers (run sequentially) and the band map. Allocates; call off
+    /// the hot path.
     pub fn new(cfg: SpectrumConfig, fft: Arc<dyn RealToComplex<f32>>) -> Result<Self, DspError> {
+        Self::with_runner(cfg, fft, |units| Box::new(SequentialLayers::new(units)))
+    }
+
+    /// As [`Analyzer::new`], with the layer units handed to `make_runner` (the engine's parallel
+    /// runner puts each on its own thread).
+    pub fn with_runner(
+        cfg: SpectrumConfig,
+        fft: Arc<dyn RealToComplex<f32>>,
+        make_runner: impl FnOnce(Vec<LayerUnit>) -> Box<dyn LayerRunner>,
+    ) -> Result<Self, DspError> {
         cfg.validate()?;
         if fft.len() != cfg.fft_size {
             return Err(DspError::PlanMismatch {
@@ -311,32 +358,16 @@ impl Analyzer {
                 fft_size: cfg.fft_size,
             });
         }
-        let n = cfg.fft_size;
-        let layers: Vec<Layer> = (0..cfg.layers)
-            .map(|k| {
-                let mut window = vec![0.0; cfg.window_samples << k];
-                cfg.window.fill(&mut window);
-                let amp_scale = (2.0 / window::sum(&window)) as f32;
-                Layer { window, amp_scale }
-            })
-            .collect();
-        let mut fft_in = fft.make_input_vec();
-        let mut spectrum = fft.make_output_vec();
-        let mut scratch = fft.make_scratch_vec();
-        let enbw = effective_enbw(
-            &layers,
-            fft.as_ref(),
-            &mut fft_in,
-            &mut spectrum,
-            &mut scratch,
-        );
+        let mut units = cfg.build_units(&fft);
+        let enbw = effective_enbw(&mut units);
         let bands = BandMap::build(BandSpec {
             layout: cfg.layout,
+            warp_blend: cfg.warp_blend as f64,
             bar_count: cfg.bar_count,
             min_hz: cfg.min_hz as f64,
             max_hz: cfg.max_hz as f64,
             sample_rate: cfg.sample_rate,
-            fft_size: n,
+            fft_size: cfg.fft_size,
             enbw_bins: enbw,
             level_ref: cfg.level_ref,
             weighting: cfg.weighting,
@@ -345,13 +376,10 @@ impl Analyzer {
         let bins = cfg.bin_count();
         let emit_bins = cfg.emit_bins && bins <= av_protocol::frame::MAX_BINS;
         Ok(Self {
+            runner: make_runner(units),
             history: vec![0.0; cfg.largest_window()],
-            layers,
             magnitude: vec![0.0; bins],
             write_pos: 0,
-            fft_in,
-            spectrum,
-            scratch,
             bin_power: vec![0.0; bins],
             bin_level: vec![0.0; if emit_bins { bins } else { 0 }],
             bands,
@@ -362,6 +390,7 @@ impl Analyzer {
             peaks: vec![0.0; bars],
             peak_held: vec![0.0; bars],
             dc: DcBlocker::new(cfg.sample_rate),
+            eq: ShelfEq::new(&cfg.eq, cfg.sample_rate),
             ballistics: Ballistics {
                 attack_ms: cfg.attack_ms,
                 release_ms: cfg.release_ms,
@@ -372,7 +401,7 @@ impl Analyzer {
             },
             gain_env_db: cfg.db_floor + AUTO_GAIN_MIN_RANGE_DB,
             clipped: false,
-            fft,
+            input_peak: 0.0,
             cfg,
         })
     }
@@ -396,6 +425,7 @@ impl Analyzer {
         self.history.fill(0.0);
         self.write_pos = 0;
         self.dc.reset();
+        self.eq.reset();
     }
 
     /// Feeds one hop of mono samples (normally `hop_samples` long) and analyses the newest
@@ -405,45 +435,25 @@ impl Analyzer {
         let cap = self.history.len();
         let hop = &hop[hop.len().saturating_sub(cap)..];
         self.clipped = false;
+        self.input_peak = 0.0;
         for &x in hop {
             self.clipped |= x.abs() >= 1.0;
-            self.history[self.write_pos] = self.dc.process(x);
+            self.input_peak = self.input_peak.max(x.abs());
+            self.history[self.write_pos] = self.eq.process(self.dc.process(x));
             self.write_pos = (self.write_pos + 1) % cap;
         }
 
         // Silence is judged on the shortest layer's window: the newest audio.
-        let mut peak = 0.0f32;
-        for_newest(
-            &self.history,
-            self.write_pos,
-            self.cfg.window_samples,
-            |_, x| {
-                peak = peak.max(x.abs());
-            },
-        );
+        let (older, newer) = newest(&self.history, self.write_pos, self.cfg.window_samples);
+        let peak = older
+            .iter()
+            .chain(newer)
+            .fold(0.0f32, |m, &x| m.max(x.abs()));
         let silent = peak < SILENCE_THRESHOLD;
 
-        self.magnitude.fill(0.0);
-        for layer in &self.layers {
-            let len = layer.window.len();
-            let (fft_in, window) = (&mut self.fft_in, &layer.window);
-            for_newest(&self.history, self.write_pos, len, |i, x| {
-                fft_in[i] = x * window[i]
-            });
-            fft_in[len..].fill(0.0);
-            if self
-                .fft
-                .process_with_scratch(&mut self.fft_in, &mut self.spectrum, &mut self.scratch)
-                .is_err()
-            {
-                // Lengths are fixed at construction, so this cannot happen; contribute nothing.
-                continue;
-            }
-            for (m, c) in self.magnitude.iter_mut().zip(&self.spectrum) {
-                *m += c.norm() * layer.amp_scale;
-            }
-        }
-        let inv_layers = 1.0 / self.layers.len() as f32;
+        self.runner
+            .run(&self.history, self.write_pos, &mut self.magnitude);
+        let inv_layers = 1.0 / self.runner.layer_count() as f32;
         let last = self.bin_power.len() - 1;
         for (k, (p, &m)) in self.bin_power.iter_mut().zip(&self.magnitude).enumerate() {
             // Amplitude a = average calibrated magnitude; a sine's power is a^2 / 2. DC and
@@ -516,47 +526,25 @@ impl Analyzer {
             silent,
             clipped: self.clipped,
             ceiling_db: ceiling,
+            input_peak: self.input_peak,
         }
     }
 }
 
-/// Calls `f(i, sample)` for the newest `len` samples of a ring, oldest first (`i` from 0).
-#[inline]
-fn for_newest(ring: &[f32], write_pos: usize, len: usize, mut f: impl FnMut(usize, f32)) {
-    let cap = ring.len();
-    let start = (write_pos + cap - len) % cap;
-    let first = (cap - start).min(len);
-    for (i, &x) in ring[start..start + first].iter().enumerate() {
-        f(i, x);
-    }
-    for (i, &x) in ring[..len - first].iter().enumerate() {
-        f(first + i, x);
-    }
-}
-
-/// Exact effective noise bandwidth (in bins of `fft_size`) of the layer-averaged response:
+/// Exact effective noise bandwidth (in bins of the FFT size) of the layer-averaged response:
 /// average the layers' window magnitude responses normalized to 1 at DC, then sum the squares
 /// over the whole (two-sided) spectrum. One unpadded layer gives the classic
 /// `N * sum(w^2) / sum(w)^2` (Parseval). Runs once per configuration.
-fn effective_enbw(
-    layers: &[Layer],
-    fft: &dyn RealToComplex<f32>,
-    fft_in: &mut [f32],
-    spectrum: &mut [Complex32],
-    scratch: &mut [Complex32],
-) -> f64 {
-    let bins = spectrum.len();
+fn effective_enbw(units: &mut [LayerUnit]) -> f64 {
+    let Some(first) = units.first_mut() else {
+        return 1.0;
+    };
+    let bins = first.window_response().len();
     let mut avg = vec![0.0f64; bins];
-    for layer in layers {
-        let len = layer.window.len();
-        fft_in[..len].copy_from_slice(&layer.window);
-        fft_in[len..].fill(0.0);
-        if fft.process_with_scratch(fft_in, spectrum, scratch).is_err() {
-            continue;
-        }
-        let dc = spectrum[0].norm() as f64;
-        for (a, c) in avg.iter_mut().zip(spectrum.iter()) {
-            *a += c.norm() as f64 / dc / layers.len() as f64;
+    let n = units.len() as f64;
+    for unit in units.iter_mut() {
+        for (a, &r) in avg.iter_mut().zip(unit.window_response()) {
+            *a += r as f64 / n;
         }
     }
     let last = bins - 1;

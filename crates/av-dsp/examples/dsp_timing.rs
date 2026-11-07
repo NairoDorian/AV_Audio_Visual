@@ -60,12 +60,12 @@ fn main() {
         &mut plans,
     );
     for layers in 2..=6 {
-        for pad in [1, 2, 4] {
-            measure(
-                &format!("layered L={layers} pad={pad}"),
-                SpectrumConfig::layered(layers, pad),
-                &mut plans,
-            );
+        for fft in [16_384usize, 32_768, 65_536] {
+            let cfg = SpectrumConfig::layered(layers, fft);
+            if fft < cfg.largest_window() {
+                continue;
+            }
+            measure(&format!("layered L={layers} N={fft}"), cfg, &mut plans);
         }
     }
 }

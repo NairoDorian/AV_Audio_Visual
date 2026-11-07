@@ -70,3 +70,32 @@ fn feed_publish_read_and_encode_never_allocate() {
     assert!(checksum > 0);
     assert_eq!(after - before, 0, "allocations on the frame path");
 }
+
+/// The parallel layer runner's dispatch and collect (on the analysis thread) never allocate:
+/// jobs are preallocated boxes moved over capacity-1 channels. The workers run
+/// `LayerUnit::compute`, covered by av-dsp's allocation gate.
+#[test]
+fn parallel_layers_never_allocate_on_the_analysis_thread() {
+    let cfg = SpectrumConfig::layered(4, 32_768);
+    let fft = PlanCache::default().get(cfg.fft_size);
+    let mut a = Analyzer::with_runner(cfg.clone(), fft, |u| {
+        Box::new(av_engine::parallel::ParallelLayers::new(u))
+    })
+    .unwrap();
+    let hop: Vec<f32> = (0..cfg.hop_samples)
+        .map(|n| (n as f32 * 0.07).sin())
+        .collect();
+    let dt = cfg.hop_samples as f32 / 48_000.0;
+    for _ in 0..20 {
+        a.process(&hop, dt);
+    }
+    let before = ALLOCS.with(Cell::get);
+    for _ in 0..500 {
+        a.process(&hop, dt);
+    }
+    assert_eq!(
+        ALLOCS.with(Cell::get) - before,
+        0,
+        "allocations in parallel hops"
+    );
+}

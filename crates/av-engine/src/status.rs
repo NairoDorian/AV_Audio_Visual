@@ -35,6 +35,8 @@ pub struct StatusSnapshot {
     pub silent: bool,
     /// Hops of synthetic silence published while the source was starved.
     pub starved_hops: u64,
+    /// Peak raw input over the last status window, dBFS (-inf for digital silence).
+    pub input_peak_dbfs: f32,
     pub updated_us: u64,
 }
 

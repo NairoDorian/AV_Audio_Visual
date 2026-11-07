@@ -8,16 +8,30 @@
   "analysis": {
     "preset": "layered",
     "layers": 4,
-    "zeroPad": 2,
+    "fftSize": 32768,
+    "window": "kaiser",
+    "kaiserBeta": 15.0,
     "barCount": 48,
     "layout": "log",
-    "minHz": 30.0,
-    "maxHz": 16000.0,
+    "warpBlend": 0.93,
+    "minHz": 20.0,
+    "maxHz": 24000.0,
     "dbFloor": -72.0,
     "dbCeiling": 0.0,
     "attackMs": 12.0,
     "releaseMs": 220.0,
-    "autoGain": true
+    "autoGain": true,
+    "eq": {
+      "enabled": true,
+      "highShelf": true,
+      "highGainDb": 24.0,
+      "highCutoffHz": 1000.0,
+      "lowShelf": false,
+      "lowGainDb": 0.0,
+      "lowCutoffHz": 200.0,
+      "q": 0.707,
+      "amount": 1.0
+    }
   },
   "performance": {
     "fpsCap": 60,

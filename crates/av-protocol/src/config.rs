@@ -112,10 +112,16 @@ pub struct AnalysisConfig {
     pub preset: FftPreset,
     /// Layer count for the `Layered` preset (1-6; 6 reaches a 32,768-sample window).
     pub layers: u32,
-    /// FFT size = largest window x this (1, 2 or 4): zero-padding for every preset.
-    pub zero_pad: u32,
+    /// The one FFT size every layer is zero-padded to (a power of two, at least the largest
+    /// window). Not a multiple of the window: it is the same for every layer, so their bins line up.
+    pub fft_size: u32,
+    pub window: WindowShape,
+    /// Kaiser shape (FFT CHOP default 15).
+    pub kaiser_beta: f32,
     pub bar_count: u32,
     pub layout: BandLayout,
+    /// 0 = linear axis, 1 = the layout's perceptual axis (FFT CHOP "Warp"); bar edges blend both.
+    pub warp_blend: f32,
     pub min_hz: f32,
     pub max_hz: f32,
     pub db_floor: f32,
@@ -123,6 +129,52 @@ pub struct AnalysisConfig {
     pub attack_ms: f32,
     pub release_ms: f32,
     pub auto_gain: bool,
+    /// Pre-analysis shelf EQ (FFT CHOP "EQ" page).
+    pub eq: EqSettings,
+}
+
+/// Analysis window shape.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WindowShape {
+    /// FFT CHOP default (beta 15): low leakage with a continuous control.
+    #[default]
+    Kaiser,
+    Hann,
+    BlackmanHarris,
+}
+
+/// Shelf EQ applied to new samples before the window. Product default: high shelf +24 dB at
+/// 1 kHz, Q 0.707, no low shelf.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EqSettings {
+    pub enabled: bool,
+    pub high_shelf: bool,
+    pub high_gain_db: f32,
+    pub high_cutoff_hz: f32,
+    pub low_shelf: bool,
+    pub low_gain_db: f32,
+    pub low_cutoff_hz: f32,
+    pub q: f32,
+    /// Dry/wet: 0 = bypass, 1 = fully filtered.
+    pub amount: f32,
+}
+
+impl Default for EqSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            high_shelf: true,
+            high_gain_db: 24.0,
+            high_cutoff_hz: 1000.0,
+            low_shelf: false,
+            low_gain_db: 0.0,
+            low_cutoff_hz: 200.0,
+            q: 0.707,
+            amount: 1.0,
+        }
+    }
 }
 
 impl Default for AnalysisConfig {
@@ -130,16 +182,20 @@ impl Default for AnalysisConfig {
         Self {
             preset: FftPreset::Layered,
             layers: 4,
-            zero_pad: 2,
+            fft_size: 32_768,
+            window: WindowShape::Kaiser,
+            kaiser_beta: 15.0,
             bar_count: 48,
             layout: BandLayout::Log,
-            min_hz: 30.0,
-            max_hz: 16_000.0,
+            warp_blend: 0.93,
+            min_hz: 20.0,
+            max_hz: 24_000.0,
             db_floor: -72.0,
             db_ceiling: 0.0,
             attack_ms: 12.0,
             release_ms: 220.0,
             auto_gain: true,
+            eq: EqSettings::default(),
         }
     }
 }
@@ -187,7 +243,71 @@ impl Default for OverlayConfig {
 
 pub static LIMITS: &[Limit<AppConfig>] = &[
     limit!(AppConfig, "analysis.layers", 1, 6, int, analysis.layers),
-    limit!(AppConfig, "analysis.zeroPad", 1, 4, int, analysis.zero_pad),
+    limit!(
+        AppConfig,
+        "analysis.fftSize",
+        1024,
+        131_072,
+        int,
+        analysis.fft_size
+    ),
+    limit!(
+        AppConfig,
+        "analysis.kaiserBeta",
+        0,
+        60,
+        float,
+        analysis.kaiser_beta
+    ),
+    limit!(
+        AppConfig,
+        "analysis.warpBlend",
+        0,
+        1,
+        float,
+        analysis.warp_blend
+    ),
+    limit!(
+        AppConfig,
+        "analysis.eq.highGainDb",
+        -24,
+        36,
+        float,
+        analysis.eq.high_gain_db
+    ),
+    limit!(
+        AppConfig,
+        "analysis.eq.highCutoffHz",
+        20,
+        20_000,
+        float,
+        analysis.eq.high_cutoff_hz
+    ),
+    limit!(
+        AppConfig,
+        "analysis.eq.lowGainDb",
+        -24,
+        36,
+        float,
+        analysis.eq.low_gain_db
+    ),
+    limit!(
+        AppConfig,
+        "analysis.eq.lowCutoffHz",
+        20,
+        20_000,
+        float,
+        analysis.eq.low_cutoff_hz
+    ),
+    limit!(AppConfig, "analysis.eq.q", 0.1, 10, float, analysis.eq.q),
+    limit!(
+        AppConfig,
+        "analysis.eq.amount",
+        0,
+        2,
+        float,
+        analysis.eq.amount
+    ),
     limit!(
         AppConfig,
         "audio.avOffsetMs",
@@ -316,9 +436,23 @@ impl Versioned for AppConfig {
 
     fn normalize(&mut self, notes: &mut Vec<String>) {
         let a = &mut self.analysis;
-        if a.zero_pad == 3 {
-            a.zero_pad = 4;
-            notes.push("analysis.zeroPad must be 1, 2 or 4; 3 raised to 4".into());
+        if !a.fft_size.is_power_of_two() {
+            a.fft_size = a.fft_size.next_power_of_two().min(131_072);
+            notes.push(format!(
+                "analysis.fftSize raised to the power of two {}",
+                a.fft_size
+            ));
+        }
+        let largest = if a.preset == FftPreset::Layered {
+            1024u32 << (a.layers.clamp(1, 6) - 1)
+        } else {
+            a.preset.sizes().0
+        };
+        if a.fft_size < largest {
+            a.fft_size = largest;
+            notes.push(format!(
+                "analysis.fftSize raised to {largest}, the longest window (zero-padding needs room)"
+            ));
         }
         if a.max_hz < a.min_hz * MIN_BAND_RATIO {
             a.max_hz = (a.min_hz * MIN_BAND_RATIO).min(24_000.0);

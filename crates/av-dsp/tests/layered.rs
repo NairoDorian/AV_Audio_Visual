@@ -49,16 +49,16 @@ fn db(p: f32) -> f64 {
     10.0 * (2.0 * p as f64 + 1e-30).log10()
 }
 
-/// Every layer count and zero-pad factor keeps a full-scale bin-centred sine at 0 dB: the
+/// Every layer count and common FFT size keeps a full-scale bin-centred sine at 0 dB: the
 /// 1/2^(k-1) scale (window-length normalization) puts all layers on one level.
 #[test]
-fn a_full_scale_sine_reads_0_db_for_every_layer_count_and_pad() {
+fn a_full_scale_sine_reads_0_db_for_every_layer_count_and_fft_size() {
     for layers in 1..=6 {
-        for pad in [1, 2, 4] {
+        for fft in [32_768usize, 65_536, 131_072] {
             let cfg = SpectrumConfig {
                 bar_count: 8,
                 level_ref: LevelRef::Band,
-                ..raw(SpectrumConfig::layered(layers, pad))
+                ..raw(SpectrumConfig::layered(layers, fft))
             };
             let n = cfg.fft_size;
             let mut a = analyzer(cfg);
@@ -70,12 +70,12 @@ fn a_full_scale_sine_reads_0_db_for_every_layer_count_and_pad() {
             let peak = db(last[peak_bin]);
             assert!(
                 peak.abs() < 0.5,
-                "L={layers} pad={pad}: peak bin {peak:.2} dB"
+                "L={layers} N={fft}: peak bin {peak:.2} dB"
             );
             let mut b = analyzer(SpectrumConfig {
                 bar_count: 8,
                 level_ref: LevelRef::Band,
-                ..raw(SpectrumConfig::layered(layers, pad))
+                ..raw(SpectrumConfig::layered(layers, fft))
             });
             let mut bar = 0.0;
             let centers = b.band_centers().to_vec();
@@ -97,20 +97,23 @@ fn a_full_scale_sine_reads_0_db_for_every_layer_count_and_pad() {
                 }
                 bar = b.process(&buf, hop as f32 / SR as f32).bar_db[idx];
             }
-            assert!(bar.abs() < 0.5, "L={layers} pad={pad}: bar {bar:.2} dB");
+            assert!(bar.abs() < 0.5, "L={layers} N={fft}: bar {bar:.2} dB");
         }
     }
 }
 
 /// Two equal tones near 60 Hz: the 6-layer analysis shows a dip between them that the 1,024
-/// layer alone (padded to the same FFT size) cannot. Measured table: docs/super-fft.md 1.6.
+/// layer alone (padded to the same FFT size) cannot. Measured tables: docs/super-fft.md 1.6.
+/// Kaiser beta 15 (the default) trades main-lobe width for -110 dB sidelobes, so it needs a
+/// wider separation than Hann for the same dip.
 #[test]
 fn layers_resolve_low_tones_the_short_window_cannot() {
-    let contrast = |layers: usize, sep: usize| {
-        // Same N for both: 32,768 (6 layers, no extra padding; 1 layer padded 32x).
-        let mut cfg = raw(SpectrumConfig::layered(layers, 1));
-        cfg.fft_size = 32_768;
-        let mut a = analyzer(cfg);
+    use av_dsp::WindowKind;
+    let contrast = |window: WindowKind, layers: usize, sep: usize| {
+        let mut a = analyzer(SpectrumConfig {
+            window,
+            ..raw(SpectrumConfig::layered(layers, 32_768))
+        });
         let df = SR as f64 / 32_768.0;
         let (b1, b2, mid) = (41usize, 41 + sep, 41 + sep / 2);
         let sig = {
@@ -128,19 +131,29 @@ fn layers_resolve_low_tones_the_short_window_cannot() {
         });
         10.0 * (peaks / dip).log10()
     };
-    // 8 bins of 1.46 Hz = 11.7 Hz apart.
-    let short = contrast(1, 8);
-    let layered = contrast(6, 8);
+    let kaiser = WindowKind::Kaiser { beta: 15.0 };
+    // Hann: 8 bins of 1.46 Hz = 11.7 Hz apart.
+    let short = contrast(WindowKind::Hann, 1, 8);
+    let layered = contrast(WindowKind::Hann, 6, 8);
     assert!(
         short.abs() < 1.0,
-        "the 1,024 window should not resolve 11.7 Hz: {short:.2} dB"
+        "Hann 1,024 resolves 11.7 Hz? {short:.2} dB"
     );
     assert!(
         layered > 3.0,
-        "6 layers should resolve 11.7 Hz: only {layered:.2} dB"
+        "Hann 6 layers at 11.7 Hz: only {layered:.2} dB"
     );
-    // 4 bins = 5.9 Hz: still a measurable gain over the short window.
-    assert!(contrast(6, 4) > contrast(1, 4) + 1.5);
+    // Kaiser 15: 12 bins = 17.6 Hz apart.
+    let short = contrast(kaiser, 1, 12);
+    let layered = contrast(kaiser, 6, 12);
+    assert!(
+        short.abs() < 1.0,
+        "Kaiser 1,024 resolves 17.6 Hz? {short:.2} dB"
+    );
+    assert!(
+        layered > 3.0,
+        "Kaiser 6 layers at 17.6 Hz: only {layered:.2} dB"
+    );
 }
 
 /// A tone starting from silence moves its bar within one hop at every layer count: the 1,024
@@ -148,7 +161,7 @@ fn layers_resolve_low_tones_the_short_window_cannot() {
 #[test]
 fn an_onset_shows_within_one_hop_at_every_layer_count() {
     for layers in 1..=6 {
-        let cfg = raw(SpectrumConfig::layered(layers, 2));
+        let cfg = raw(SpectrumConfig::layered(layers, 32_768));
         let hop = cfg.hop_samples;
         let mut a = analyzer(cfg);
         let zeros = vec![0.0f32; hop];
@@ -173,7 +186,7 @@ fn an_onset_shows_within_one_hop_at_every_layer_count() {
 fn six_layers_build_and_run_with_bins_skipped_above_the_wire_limit() {
     let cfg = SpectrumConfig {
         emit_bins: true,
-        ..SpectrumConfig::layered(6, 4)
+        ..SpectrumConfig::layered(6, 131_072)
     };
     assert_eq!(cfg.fft_size, 131_072);
     let mut a = analyzer(cfg);

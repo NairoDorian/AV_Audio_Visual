@@ -12,10 +12,14 @@ pub mod analyzer;
 pub mod ballistics;
 pub mod bands;
 pub mod dc;
+pub mod eq;
+pub mod layers;
 pub mod weighting;
 pub mod window;
 
 pub use analyzer::{Analyzer, DspError, FrameData, PlanCache, SpectrumConfig};
 pub use bands::LevelRef;
+pub use eq::EqConfig;
+pub use layers::{LayerRunner, LayerUnit, SequentialLayers};
 pub use weighting::Weighting;
 pub use window::WindowKind;

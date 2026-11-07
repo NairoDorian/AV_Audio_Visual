@@ -7,11 +7,67 @@
     "path": "analysis.layers"
   },
   {
-    "default": 2.0,
+    "default": 32768.0,
     "integer": true,
-    "max": 4.0,
-    "min": 1.0,
-    "path": "analysis.zeroPad"
+    "max": 131072.0,
+    "min": 1024.0,
+    "path": "analysis.fftSize"
+  },
+  {
+    "default": 15.0,
+    "integer": false,
+    "max": 60.0,
+    "min": 0.0,
+    "path": "analysis.kaiserBeta"
+  },
+  {
+    "default": 0.9300000071525574,
+    "integer": false,
+    "max": 1.0,
+    "min": 0.0,
+    "path": "analysis.warpBlend"
+  },
+  {
+    "default": 24.0,
+    "integer": false,
+    "max": 36.0,
+    "min": -24.0,
+    "path": "analysis.eq.highGainDb"
+  },
+  {
+    "default": 1000.0,
+    "integer": false,
+    "max": 20000.0,
+    "min": 20.0,
+    "path": "analysis.eq.highCutoffHz"
+  },
+  {
+    "default": 0.0,
+    "integer": false,
+    "max": 36.0,
+    "min": -24.0,
+    "path": "analysis.eq.lowGainDb"
+  },
+  {
+    "default": 200.0,
+    "integer": false,
+    "max": 20000.0,
+    "min": 20.0,
+    "path": "analysis.eq.lowCutoffHz"
+  },
+  {
+    "default": 0.7070000171661377,
+    "integer": false,
+    "max": 10.0,
+    "min": 0.1,
+    "path": "analysis.eq.q"
+  },
+  {
+    "default": 1.0,
+    "integer": false,
+    "max": 2.0,
+    "min": 0.0,
+    "path": "analysis.eq.amount"
   },
   {
     "default": 0.0,
@@ -28,14 +84,14 @@
     "path": "analysis.barCount"
   },
   {
-    "default": 30.0,
+    "default": 20.0,
     "integer": false,
     "max": 2000.0,
     "min": 10.0,
     "path": "analysis.minHz"
   },
   {
-    "default": 16000.0,
+    "default": 24000.0,
     "integer": false,
     "max": 24000.0,
     "min": 500.0,

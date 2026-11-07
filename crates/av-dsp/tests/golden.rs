@@ -173,7 +173,7 @@ fn pink_noise_is_flat_within_1_5_db_from_100_hz_to_10_khz() {
 
 #[test]
 fn pink_noise_is_flat_within_2_db_in_layered_mode() {
-    assert_pink_flat(raw(SpectrumConfig::layered(4, 2)), 2.0);
+    assert_pink_flat(raw(SpectrumConfig::layered(4, 32_768)), 2.0);
 }
 
 /// Returns the worst deviation from the mean level, in dB, after asserting the tolerance.
@@ -301,10 +301,10 @@ fn invalid_configs_are_rejected() {
     assert!(Analyzer::new(bad, plans.get(2047)).is_err());
     let unpadded_too_small = SpectrumConfig::single(2048, 1024, 512);
     assert!(Analyzer::new(unpadded_too_small, plans.get(1024)).is_err());
-    assert!(SpectrumConfig::layered(7, 1).validate().is_err());
+    assert!(SpectrumConfig::layered(7, 32_768).validate().is_err());
     assert!(
         SpectrumConfig::layered(6, 8).validate().is_err(),
-        "above the FFT size limit"
+        "FFT smaller than the longest window"
     );
     let mismatch = SpectrumConfig::default();
     assert!(Analyzer::new(mismatch, plans.get(1024)).is_err());

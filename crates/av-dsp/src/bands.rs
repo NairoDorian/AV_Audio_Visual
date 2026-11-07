@@ -39,15 +39,29 @@ fn mel_inv(m: f64) -> f64 {
 }
 
 /// `bar_count + 1` edges in Hz from `min_hz` to `max_hz`.
-pub fn edges(layout: BandLayout, bar_count: usize, min_hz: f64, max_hz: f64) -> Vec<f64> {
+///
+/// `warp_blend` mixes the layout's perceptual spacing with linear spacing, edge by edge
+/// (`(1 - b) * linear + b * perceptual`), as the FFT CHOP's "Warp" does for its output grid
+/// (ZER0 `live_fft/dsp.rs` `compute_target_hz_grid`). 1 = pure layout, 0 = linear. Both
+/// spacings are monotonic, so the blend is too.
+pub fn edges(
+    layout: BandLayout,
+    bar_count: usize,
+    min_hz: f64,
+    max_hz: f64,
+    warp_blend: f64,
+) -> Vec<f64> {
+    let b = warp_blend.clamp(0.0, 1.0);
     (0..=bar_count)
         .map(|i| {
             let t = i as f64 / bar_count as f64;
-            match layout {
+            let linear = min_hz + (max_hz - min_hz) * t;
+            let perceptual = match layout {
                 BandLayout::Log => min_hz * (max_hz / min_hz).powf(t),
-                BandLayout::Linear => min_hz + (max_hz - min_hz) * t,
+                BandLayout::Linear => linear,
                 BandLayout::Mel => mel_inv(mel(min_hz) + (mel(max_hz) - mel(min_hz)) * t),
-            }
+            };
+            (1.0 - b) * linear + b * perceptual
         })
         .collect()
 }
@@ -71,6 +85,8 @@ pub struct BandMap {
 #[derive(Debug, Clone, Copy)]
 pub struct BandSpec {
     pub layout: BandLayout,
+    /// 1 = pure layout spacing, 0 = linear (see [`edges`]).
+    pub warp_blend: f64,
     pub bar_count: usize,
     pub min_hz: f64,
     pub max_hz: f64,
@@ -88,7 +104,7 @@ impl BandMap {
         let nyquist = spec.sample_rate as f64 / 2.0;
         let max_hz = spec.max_hz.min(nyquist);
         let min_hz = spec.min_hz.clamp(1.0, max_hz / 2.0);
-        let e = edges(spec.layout, spec.bar_count, min_hz, max_hz);
+        let e = edges(spec.layout, spec.bar_count, min_hz, max_hz, spec.warp_blend);
 
         let mut starts = Vec::with_capacity(spec.bar_count + 1);
         let mut bins = Vec::new();
@@ -181,6 +197,7 @@ mod tests {
     fn spec(layout: BandLayout, bars: usize) -> BandSpec {
         BandSpec {
             layout,
+            warp_blend: 1.0,
             bar_count: bars,
             min_hz: 30.0,
             max_hz: 16_000.0,
@@ -195,7 +212,7 @@ mod tests {
     #[test]
     fn edges_are_monotonic_and_span_the_range() {
         for layout in [BandLayout::Log, BandLayout::Linear, BandLayout::Mel] {
-            let e = edges(layout, 48, 30.0, 16_000.0);
+            let e = edges(layout, 48, 30.0, 16_000.0, 1.0);
             assert_eq!(e.len(), 49);
             assert!((e[0] - 30.0).abs() < 1e-9 && (e[48] - 16_000.0).abs() < 1e-6);
             assert!(e.windows(2).all(|w| w[1] > w[0]), "{layout:?}");
@@ -204,10 +221,23 @@ mod tests {
 
     #[test]
     fn log_edges_have_a_constant_ratio() {
-        let e = edges(BandLayout::Log, 10, 100.0, 102_400.0);
+        let e = edges(BandLayout::Log, 10, 100.0, 102_400.0, 1.0);
         for w in e.windows(2) {
             assert!((w[1] / w[0] - 2.0).abs() < 1e-9);
         }
+    }
+
+    #[test]
+    fn warp_blend_mixes_linear_and_log_edges_monotonically() {
+        let log = edges(BandLayout::Log, 32, 20.0, 24_000.0, 1.0);
+        let lin = edges(BandLayout::Log, 32, 20.0, 24_000.0, 0.0);
+        let mix = edges(BandLayout::Log, 32, 20.0, 24_000.0, 0.93);
+        for i in 0..=32 {
+            let expect = 0.07 * lin[i] + 0.93 * log[i];
+            assert!((mix[i] - expect).abs() < 1e-9);
+        }
+        assert!(mix.windows(2).all(|w| w[1] > w[0]));
+        assert!((lin[16] - (20.0 + 23_980.0 / 2.0)).abs() < 1e-9);
     }
 
     #[test]

@@ -11,15 +11,19 @@ reactive and precise.
 ## Decision
 
 The analyzer supports **1-6 layers**. Layer `k` windows the newest `1024 * 2^(k-1)` samples
-(max 32,768) with the same window shape, is zero-padded to one common FFT size `N` (largest
-window times a zero-pad factor of 1, 2 or 4), and contributes its magnitude spectrum divided by
+(max 32,768) with the same window shape, is zero-padded to one common FFT size `N` (a setting of
+its own, default 32,768, never a per-layer multiple), and contributes its magnitude spectrum divided by
 `2^(k-1)` (window-length normalization) to a per-bin average. The averaged magnitude replaces the
 single-window magnitude before band mapping; everything downstream (bands, weighting, dB,
 auto-gain, ballistics) is unchanged. Band noise bandwidth uses the exact effective ENBW of the
 averaged response, computed once per configuration.
 
-The `layered` preset (4 layers, zero-pad 2, hop 512) becomes the default once its gates pass;
-the classic single-window presets remain.
+The `layered` preset (4 layers, N = 32,768, hop 512, Kaiser beta 15, +24 dB high shelf at 1 kHz)
+is the default; the classic single-window presets remain. Layers may run one per core (the
+parallel runner in `av-engine`), which must stay bit-identical to sequential execution.
+
+Amended 2026-11-07: the zero-pad factor was replaced by a fixed common FFT size, and the FFT
+CHOP's defaults became the source of truth.
 
 ## Consequences
 

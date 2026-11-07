@@ -155,9 +155,10 @@ where
                 }
             },
             move |err| {
-                // Not the data callback: may run on any cpal thread. A rerouted default device
-                // keeps streaming; anything that ends the stream marks the source failed.
-                if err.kind() != cpal::ErrorKind::DeviceChanged {
+                // Not the data callback: may run on any cpal thread. Only errors that end the
+                // stream mark the source failed; xruns, a refused real-time promotion and a
+                // rerouted default device leave it streaming.
+                if is_fatal(err.kind()) {
                     error_state.store(FAILED, Ordering::SeqCst);
                 }
             },
@@ -166,6 +167,15 @@ where
         .map_err(map_error)?;
     stream.play().map_err(map_error)?;
     Ok(stream)
+}
+
+/// Errors after which the stream delivers nothing more.
+fn is_fatal(kind: cpal::ErrorKind) -> bool {
+    use cpal::ErrorKind as K;
+    matches!(
+        kind,
+        K::DeviceNotAvailable | K::StreamInvalidated | K::HostUnavailable | K::ResourceExhausted
+    )
 }
 
 impl CaptureBackend for LiveSource {
@@ -270,6 +280,16 @@ impl Drop for LiveSource {
 mod tests {
     use super::*;
     use crate::ring::ring;
+
+    #[test]
+    fn only_stream_ending_errors_are_fatal() {
+        use cpal::ErrorKind as K;
+        assert!(is_fatal(K::DeviceNotAvailable));
+        assert!(is_fatal(K::StreamInvalidated));
+        assert!(!is_fatal(K::Xrun));
+        assert!(!is_fatal(K::RealtimeDenied));
+        assert!(!is_fatal(K::DeviceChanged));
+    }
 
     /// Needs a real output device; run with `cargo test -p av-audio -- --ignored` on a desktop.
     #[test]

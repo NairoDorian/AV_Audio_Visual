@@ -5,6 +5,7 @@
 //! generation counters (`references/studies/zer0-audio-capture-and-fft.md`); no code copied.
 
 pub mod engine;
+pub mod parallel;
 pub mod pipeline;
 pub mod preview;
 pub mod slot_ring;

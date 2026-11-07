@@ -2,7 +2,29 @@
 
 Every number here has a command and a machine (README section 6.2). Newest first.
 
-## DSP: layered FFT (ADR-020)
+## DSP: parallel FFT layers (ADR-020, 2026-11-07)
+
+Command: `cargo run --release -p av-engine --example layer_timing` (3,000 hops after 100 warm-up,
+48 bars, Kaiser beta 15, no EQ). Machine: Intel Core i9-13900H, Windows 11 Pro 26300, AC power.
+Parallel = layer 0 on the analysis thread, layers 1.. on their own threads (park/unpark hand-off).
+
+| Config | Seq p50 | Seq p99 | Par p50 | Par p99 | Speed-up (p50) |
+| :-- | --: | --: | --: | --: | --: |
+| L=2 N=16,384 | 126.7 us | 209.7 us | 75.2 us | 133.3 us | 1.68x |
+| L=4 N=16,384 | 239.5 us | 364.3 us | 130.5 us | 218.4 us | 1.84x |
+| L=2 N=32,768 | 270.0 us | 473.8 us | 253.1 us | 300.8 us | 1.07x |
+| L=3 N=32,768 | 394.3 us | 668.8 us | 262.0 us | 327.6 us | 1.50x |
+| **L=4 N=32,768 (default)** | 543.8 us | 874.4 us | 269.5 us | 349.5 us | 2.02x |
+| L=5 N=32,768 | 685.6 us | 1,087.8 us | 279.6 us | 393.1 us | 2.45x |
+| L=6 N=32,768 | 838.7 us | 1,320.0 us | 296.6 us | 444.8 us | 2.83x |
+| L=4 N=65,536 | 1,172.3 us | 1,785.2 us | 560.4 us | 674.9 us | 2.09x |
+| L=6 N=65,536 | 1,788.2 us | 2,630.4 us | 586.2 us | 783.8 us | 3.05x |
+
+The engine uses the parallel runner from 3 layers up. Every configuration fits the 2 ms budget
+in parallel; sequentially L=6 N=65,536 does not. Allocation gate: `cargo test -p av-engine --test
+alloc` (parallel dispatch and collect, 500 hops, zero allocations on the analysis thread).
+
+## DSP: layered FFT (ADR-020), first pass
 
 Command: `cargo run --release -p av-dsp --example dsp_timing` (5,000 hops after 100 warm-up, 128
 bars, per-bin levels when within the wire limit, Hann, hop 512 for layered presets).

@@ -58,6 +58,8 @@ pub struct AudioStatus {
     pub dropped_samples: u64,
     pub silent: bool,
     pub starved_hops: u64,
+    /// Peak raw input over the last status window, dBFS (-200 for digital silence).
+    pub input_peak_dbfs: f32,
     pub clock: &'static str,
     /// `running`, `finished`, `failed` (device lost) or `stopped`.
     pub capture: &'static str,
@@ -206,6 +208,7 @@ impl AudioService {
             dropped_samples: s.dropped_samples,
             silent: s.silent,
             starved_hops: s.starved_hops,
+            input_peak_dbfs: s.input_peak_dbfs,
             capture: match a.source.state() {
                 CaptureState::Running => "running",
                 CaptureState::Finished => "finished",
