@@ -11,6 +11,8 @@ publish.workspace = true
 
 [dependencies]
 av-protocol.workspace = true
+rtrb.workspace = true
+symphonia.workspace = true
 
 [lints]
 workspace = true

@@ -13,6 +13,7 @@ publish.workspace = true
 av-protocol.workspace = true
 av-dsp.workspace = true
 av-audio.workspace = true
+arc-swap.workspace = true
 
 [lints]
 workspace = true
