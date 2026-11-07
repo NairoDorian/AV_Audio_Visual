@@ -14,9 +14,11 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering, fence};
 
-use av_protocol::frame::{FrameFlags, FrameHeader, MAX_BARS, MAX_BINS};
+use av_protocol::frame::{FrameFlags, FrameHeader, MAX_BARS, MAX_BINS, MAX_WAVEFORM};
 
 pub const SLOTS: usize = 64;
+/// `waveform_count` of a slot without a waveform block.
+const NO_WAVEFORM: u32 = u32::MAX;
 /// Read attempts before a reader gives up and keeps its previous frame.
 const MAX_READ_ATTEMPTS: usize = 64;
 
@@ -30,8 +32,11 @@ struct Slot {
     flags: AtomicU32,
     generation: AtomicU32,
     bin_count: AtomicU32,
+    /// Waveform samples in this slot; `u32::MAX` = no waveform block.
+    waveform_count: AtomicU32,
     bars: Box<[AtomicU32]>,
     bins: Box<[AtomicU32]>,
+    waveform: Box<[AtomicU32]>,
 }
 
 /// A zeroed payload from the zeroing allocator, so pages the frame never reaches stay
@@ -59,8 +64,10 @@ impl Slot {
             flags: AtomicU32::new(0),
             generation: AtomicU32::new(0),
             bin_count: AtomicU32::new(0),
+            waveform_count: AtomicU32::new(NO_WAVEFORM),
             bars: zeros(MAX_BARS),
             bins: zeros(MAX_BINS),
+            waveform: zeros(MAX_WAVEFORM),
         }
     }
 
@@ -91,6 +98,8 @@ pub struct FrameCopy {
     bars: Box<[f32]>,
     bins: Box<[f32]>,
     bin_count: usize,
+    waveform: Box<[f32]>,
+    waveform_count: Option<usize>,
 }
 
 impl Default for FrameCopy {
@@ -100,6 +109,8 @@ impl Default for FrameCopy {
             bars: vec![0.0; MAX_BARS].into_boxed_slice(),
             bins: vec![0.0; MAX_BINS].into_boxed_slice(),
             bin_count: 0,
+            waveform: vec![0.0; MAX_WAVEFORM].into_boxed_slice(),
+            waveform_count: None,
         }
     }
 }
@@ -111,6 +122,10 @@ impl FrameCopy {
     /// Bins, if the frame carried them and the read asked for them.
     pub fn bins(&self) -> Option<&[f32]> {
         (self.bin_count > 0).then(|| &self.bins[..self.bin_count])
+    }
+    /// The tapered raw-audio window, if the frame carried one.
+    pub fn waveform(&self) -> Option<&[f32]> {
+        self.waveform_count.map(|n| &self.waveform[..n])
     }
 }
 
@@ -158,6 +173,17 @@ impl SlotWriter {
     /// `BINS_PRESENT` follows `bins`. Never blocks or allocates. Slices longer than the slot
     /// capacity are truncated.
     pub fn publish(&mut self, header: &FrameHeader, bars: &[f32], bins: Option<&[f32]>) -> u32 {
+        self.publish_with(header, bars, bins, None)
+    }
+
+    /// As [`SlotWriter::publish`], with an optional waveform block (wire v2).
+    pub fn publish_with(
+        &mut self,
+        header: &FrameHeader,
+        bars: &[f32],
+        bins: Option<&[f32]>,
+        waveform: Option<&[f32]>,
+    ) -> u32 {
         let count = self.ring.published.load(Ordering::Relaxed) + 1;
         let sequence = count as u32;
         let slot = &self.ring.slots[(count % SLOTS as u64) as usize];
@@ -170,6 +196,7 @@ impl SlotWriter {
         let bins = bins.map(|b| &b[..b.len().min(MAX_BINS)]);
         let mut flags = header.flags;
         flags.set(FrameFlags::BINS_PRESENT, bins.is_some());
+        flags.set(FrameFlags::WAVEFORM_PRESENT, waveform.is_some());
         flags.set(FrameFlags::HEADER_ONLY, false);
         slot.sequence.store(sequence, Ordering::Relaxed);
         slot.timestamp_us
@@ -190,6 +217,14 @@ impl SlotWriter {
             b.len()
         });
         slot.bin_count.store(bin_count as u32, Ordering::Relaxed);
+        let waveform = waveform.map(|w| &w[..w.len().min(MAX_WAVEFORM)]);
+        let waveform_count = waveform.map_or(NO_WAVEFORM, |w| {
+            for (dst, &v) in slot.waveform.iter().zip(w) {
+                dst.store(v.to_bits(), Ordering::Relaxed);
+            }
+            w.len() as u32
+        });
+        slot.waveform_count.store(waveform_count, Ordering::Relaxed);
 
         slot.version.store(v.wrapping_add(2), Ordering::Release);
         self.ring.published.store(count, Ordering::Release);
@@ -292,6 +327,14 @@ impl FrameReader {
             for (dst, src) in out.bins[..bins].iter_mut().zip(slot.bins.iter()) {
                 *dst = f32::from_bits(src.load(Ordering::Relaxed));
             }
+            let stored_wave = slot.waveform_count.load(Ordering::Relaxed);
+            let wave =
+                (stored_wave != NO_WAVEFORM).then_some((stored_wave as usize).min(MAX_WAVEFORM));
+            if let Some(n) = wave {
+                for (dst, src) in out.waveform[..n].iter_mut().zip(slot.waveform.iter()) {
+                    *dst = f32::from_bits(src.load(Ordering::Relaxed));
+                }
+            }
             fence(Ordering::Acquire);
             if slot.version.load(Ordering::Relaxed) == v1 {
                 out.header = header;
@@ -300,6 +343,7 @@ impl FrameReader {
                     out.header.flags.set(FrameFlags::BINS_PRESENT, false);
                 }
                 out.bin_count = bins;
+                out.waveform_count = wave;
                 return Ok(());
             }
         }

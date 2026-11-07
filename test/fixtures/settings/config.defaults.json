@@ -50,6 +50,7 @@
     "attackMs": 15.0,
     "releaseMs": 250.0,
     "spectralFeatures": false,
+    "waveformSamples": 800,
     "parallelLayers": "auto"
   },
   "performance": {

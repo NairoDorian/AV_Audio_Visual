@@ -219,3 +219,30 @@ fn the_preview_encoder_answers_header_only_when_nothing_changed() {
     let no_bins = wire::decode(enc.encode(&reader, None, false)).unwrap();
     assert!(no_bins.bins().is_none());
 }
+
+#[test]
+fn frames_carry_the_tapered_raw_waveform() {
+    let (mut writer, reader) = slot_ring();
+    let mut p = Pipeline::new(analyzer(SpectrumConfig::default()), 1, 2, 0);
+    // A full-scale stereo DC pair: the scope is the raw mono mix, before the DC blocker.
+    let stereo = vec![0.5f32; 2 * 4800];
+    p.feed(&stereo, &mut writer);
+    let mut enc = PreviewEncoder::default();
+    let d = wire::decode(enc.encode(&reader, None, false)).unwrap();
+    let w: Vec<f32> = d.waveform().expect("waveform present").iter().collect();
+    assert_eq!(w.len(), 800);
+    assert_eq!(w[0], 0.0, "the taper starts at zero");
+    assert!(
+        (w[400] - 0.5).abs() < 1e-3,
+        "the middle is the raw sample: {}",
+        w[400]
+    );
+    assert!(w[799].abs() < 1e-6);
+    // Off when the setting is 0.
+    let mut s = SpectrumConfig::default().settings;
+    s.waveform_samples = 0;
+    p.swap(analyzer(SpectrumConfig::new(s, SR)), 2);
+    p.feed(&stereo, &mut writer);
+    let d = wire::decode(enc.encode(&reader, None, false)).unwrap();
+    assert!(d.waveform().is_none());
+}

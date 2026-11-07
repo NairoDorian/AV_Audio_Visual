@@ -18,8 +18,12 @@
 pub const HEADER_WORDS: usize = 8;
 /// Bytes in the header.
 pub const HEADER_BYTES: usize = HEADER_WORDS * 4;
-/// The wire version this crate writes and the only one it reads.
-pub const WIRE_VERSION: u8 = 1;
+/// The wire version this crate writes. v2 added the waveform block (flag bit 6).
+pub const WIRE_VERSION: u8 = 2;
+/// The oldest version this crate still reads (v1 frames are v2 frames without a waveform).
+pub const MIN_WIRE_VERSION: u8 = 1;
+/// Longest waveform block (the tapered raw-audio scope, docs/super-fft.md section 4).
+pub const MAX_WAVEFORM: usize = 4096;
 /// Maximum bars in one frame (slot capacity, pre-plan 5.4).
 pub const MAX_BARS: usize = crate::config::MAX_OUTPUT_BINS as usize;
 /// Largest FFT the slot ring is sized for; bins = `MAX_FFT_SIZE / 2 + 1` = 4,097.
@@ -52,11 +56,13 @@ impl FrameFlags {
     pub const FEATURES_PRESENT: Self = Self(1 << 4);
     /// Reply carries no payload: the client already has this sequence.
     pub const HEADER_ONLY: Self = Self(1 << 5);
+    /// (v2) A waveform block follows the features: one u32 count, then that many f32 samples.
+    pub const WAVEFORM_PRESENT: Self = Self(1 << 6);
 
     /// Every defined flag bit.
-    pub const DEFINED_MASK: u32 = 0x3F;
-    /// Bits 6-23: must be zero in v1.
-    pub const RESERVED_MASK: u32 = 0x00FF_FFC0;
+    pub const DEFINED_MASK: u32 = 0x7F;
+    /// Bits 7-23: must be zero (bit 6 too in a v1 frame).
+    pub const RESERVED_MASK: u32 = 0x00FF_FF80;
     /// Bits 24-31: the wire version.
     pub const VERSION_SHIFT: u32 = 24;
 
@@ -126,6 +132,8 @@ pub enum WireError {
     ReservedBitsSet(u32),
     /// `bar_count` above `MAX_BARS`.
     TooManyBars(u32),
+    /// A waveform block longer than `MAX_WAVEFORM`.
+    WaveformTooLong(u32),
     /// Bins announced with an odd, zero or oversized `fft_size`.
     InvalidFftSize(u32),
     /// Slices handed to the encoder do not match the header.
@@ -152,6 +160,9 @@ impl std::fmt::Display for WireError {
             ),
             Self::ReservedBitsSet(bits) => write!(f, "reserved flag bits set: {bits:#010x}"),
             Self::TooManyBars(n) => write!(f, "bar_count {n} exceeds {MAX_BARS}"),
+            Self::WaveformTooLong(n) => {
+                write!(f, "waveform of {n} samples exceeds {MAX_WAVEFORM}")
+            }
             Self::InvalidFftSize(n) => write!(f, "invalid fft_size {n} for a bins payload"),
             Self::PayloadMismatch(what) => write!(f, "payload does not match header: {what}"),
             Self::BufferTooSmall { needed, got } => {
@@ -183,13 +194,16 @@ impl FrameHeader {
     pub fn from_words(words: [u32; HEADER_WORDS]) -> Result<Self, WireError> {
         let flags_word = words[6];
         let version = (flags_word >> FrameFlags::VERSION_SHIFT) as u8;
-        if version != WIRE_VERSION {
+        if !(MIN_WIRE_VERSION..=WIRE_VERSION).contains(&version) {
             return Err(WireError::UnknownVersion(version));
         }
-        if flags_word & FrameFlags::RESERVED_MASK != 0 {
-            return Err(WireError::ReservedBitsSet(
-                flags_word & FrameFlags::RESERVED_MASK,
-            ));
+        let reserved = if version == 1 {
+            FrameFlags::RESERVED_MASK | FrameFlags::WAVEFORM_PRESENT.bits()
+        } else {
+            FrameFlags::RESERVED_MASK
+        };
+        if flags_word & reserved != 0 {
+            return Err(WireError::ReservedBitsSet(flags_word & reserved));
         }
         let header = Self {
             sequence: words[0],
@@ -292,16 +306,16 @@ mod tests {
     #[test]
     fn unknown_version_and_reserved_bits_are_rejected() {
         let mut w = sample().to_words();
-        w[6] = (w[6] & 0x00FF_FFFF) | (2 << 24);
+        w[6] = (w[6] & 0x00FF_FFFF) | (3 << 24);
         assert_eq!(
             FrameHeader::from_words(w),
-            Err(WireError::UnknownVersion(2))
+            Err(WireError::UnknownVersion(3))
         );
         let mut w = sample().to_words();
-        w[6] |= 1 << 6;
+        w[6] |= 1 << 7;
         assert_eq!(
             FrameHeader::from_words(w),
-            Err(WireError::ReservedBitsSet(1 << 6))
+            Err(WireError::ReservedBitsSet(1 << 7))
         );
     }
 
@@ -341,6 +355,6 @@ mod tests {
         assert!(f.contains(FrameFlags::SILENT));
         f.set(FrameFlags::SILENT, false);
         assert_eq!(f, FrameFlags::empty());
-        assert_eq!(FrameFlags::from_bits_truncate(0xFFFF_FFFF).bits(), 0x3F);
+        assert_eq!(FrameFlags::from_bits_truncate(0xFFFF_FFFF).bits(), 0x7F);
     }
 }

@@ -222,6 +222,17 @@ export const PAGES: ReadonlyArray<{ id: PageId; label: string; params: ReadonlyA
         integer: true,
         help: "Samples between analyses: the frame rate is rate / hop.",
       },
+      {
+        kind: "number",
+        key: "waveformSamples",
+        label: "Raw audio scope",
+        unit: "samples",
+        min: 0,
+        max: 4096,
+        step: 1,
+        integer: true,
+        help: "Newest samples sent with every frame, tapered 0 -> 1 -> 0 (800 = one 60 fps frame at 48 kHz; 0 = off).",
+      },
       { kind: "toggle", key: "zeroPadding", label: "Zero-padding" },
       {
         kind: "select",

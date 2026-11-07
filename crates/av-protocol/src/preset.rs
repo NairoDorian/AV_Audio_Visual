@@ -67,7 +67,7 @@ pub fn builtin_presets() -> Vec<Preset> {
     vec![Preset::default()]
 }
 
-pub static LIMITS: [Limit<Preset>; 22] = analysis_limits!(Preset, analysis);
+pub static LIMITS: [Limit<Preset>; 23] = analysis_limits!(Preset, analysis);
 
 impl Versioned for Preset {
     const VERSION_KEY: &'static str = "presetVersion";

@@ -1,16 +1,19 @@
-// Wire format v1 decoder (and a test-grade encoder) for the Studio preview.
+// Wire format v2 decoder (and a test-grade encoder) for the Studio preview. Reads v1 too.
 //
 // Mirrors crates/av-protocol/src/{frame,wire}.rs; byte-for-byte parity is pinned by
 // test/wire.parity.test.ts against fixtures generated from Rust. Layout: 8 little-endian u32
 // header words, then `barCount` f32 bars, then `fftSize / 2 + 1` f32 bins if BINS_PRESENT, then
-// 8 f32 features if FEATURES_PRESENT. No padding.
+// 8 f32 features if FEATURES_PRESENT, then (v2) a u32 count and that many f32 waveform samples
+// if WAVEFORM_PRESENT. No padding.
 //
 // `decodeFrame` is zero-copy: the payload arrays are Float32Array views over the response
 // buffer. Consume them in the same rAF tick; the next response replaces the buffer.
 
 export const HEADER_WORDS = 8;
 export const HEADER_BYTES = HEADER_WORDS * 4;
-export const WIRE_VERSION = 1;
+export const WIRE_VERSION = 2;
+export const MIN_WIRE_VERSION = 1;
+export const MAX_WAVEFORM = 4096;
 /** `MAX_OUTPUT_BINS`: 131,072 / 2 + 1, so Raw RFFT Bins always fit. */
 export const MAX_BARS = 65_537;
 export const MAX_FFT_SIZE = 8192;
@@ -23,10 +26,11 @@ export const Flags = {
   BINS_PRESENT: 1 << 3,
   FEATURES_PRESENT: 1 << 4,
   HEADER_ONLY: 1 << 5,
+  WAVEFORM_PRESENT: 1 << 6,
 } as const;
 
-const DEFINED_MASK = 0x3f;
-const RESERVED_MASK = 0x00ffffc0;
+const DEFINED_MASK = 0x7f;
+const RESERVED_MASK = 0x00ffff80;
 const VERSION_SHIFT = 24;
 
 export interface FrameHeader {
@@ -36,7 +40,7 @@ export interface FrameHeader {
   sampleRate: number;
   fftSize: number;
   barCount: number;
-  /** Flag bits 0-5; never includes the version byte. */
+  /** Flag bits 0-6; never includes the version byte. */
   flags: number;
   generation: number;
 }
@@ -47,6 +51,8 @@ export interface DecodedFrame {
   bars: Float32Array;
   bins: Float32Array | null;
   features: Float32Array | null;
+  /** The tapered raw-audio window (v2). */
+  waveform: Float32Array | null;
 }
 
 export type WireErrorKind =
@@ -55,6 +61,7 @@ export type WireErrorKind =
   | "UnknownVersion"
   | "ReservedBitsSet"
   | "TooManyBars"
+  | "WaveformTooLong"
   | "InvalidFftSize";
 
 export class WireError extends Error {
@@ -82,9 +89,11 @@ function featureCount(h: FrameHeader): number {
   return hasFlag(h, Flags.FEATURES_PRESENT) ? FEATURE_COUNT : 0;
 }
 
-export function encodedLength(h: FrameHeader): number {
+/** Bytes of a frame; `waveform` is the waveform sample count when the block is present. */
+export function encodedLength(h: FrameHeader, waveform: number | null = null): number {
   if (hasFlag(h, Flags.HEADER_ONLY)) return HEADER_BYTES;
-  return HEADER_BYTES + (h.barCount + binCount(h) + featureCount(h)) * 4;
+  const base = HEADER_BYTES + (h.barCount + binCount(h) + featureCount(h)) * 4;
+  return waveform === null ? base : base + 4 + waveform * 4;
 }
 
 // Float32Array views use host byte order; every supported target is little-endian. A big-endian
@@ -98,11 +107,12 @@ export function decodeHeader(view: DataView): FrameHeader {
   const w = (i: number) => view.getUint32(i * 4, true);
   const flagsWord = w(6);
   const version = flagsWord >>> VERSION_SHIFT;
-  if (version !== WIRE_VERSION) {
+  if (version < MIN_WIRE_VERSION || version > WIRE_VERSION) {
     throw new WireError("UnknownVersion", `version ${version}, this build reads ${WIRE_VERSION}`);
   }
-  if ((flagsWord & RESERVED_MASK) !== 0) {
-    throw new WireError("ReservedBitsSet", `bits ${(flagsWord & RESERVED_MASK) >>> 0}`);
+  const reserved = version === 1 ? RESERVED_MASK | Flags.WAVEFORM_PRESENT : RESERVED_MASK;
+  if ((flagsWord & reserved) !== 0) {
+    throw new WireError("ReservedBitsSet", `bits ${(flagsWord & reserved) >>> 0}`);
   }
   const header: FrameHeader = {
     sequence: w(0),
@@ -135,15 +145,28 @@ export function decodeFrame(bytes: ArrayBuffer | Uint8Array): DecodedFrame {
   const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   const view = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
   const header = decodeHeader(view);
-  const expected = encodedLength(header);
+  const headerOnly = hasFlag(header, Flags.HEADER_ONLY);
+  let waveformCount: number | null = null;
+  if (hasFlag(header, Flags.WAVEFORM_PRESENT) && !headerOnly) {
+    const at = encodedLength(header);
+    if (u8.byteLength < at + 4) {
+      throw new WireError("Truncated", `need ${at + 4} bytes, got ${u8.byteLength}`);
+    }
+    waveformCount = view.getUint32(at, true);
+    if (waveformCount > MAX_WAVEFORM) {
+      throw new WireError("WaveformTooLong", `${waveformCount} > ${MAX_WAVEFORM}`);
+    }
+  }
+  const expected = encodedLength(header, waveformCount);
   if (u8.byteLength < expected) {
     throw new WireError("Truncated", `need ${expected} bytes, got ${u8.byteLength}`);
   }
   if (u8.byteLength > expected) {
     throw new WireError("TrailingBytes", `expected ${expected} bytes, got ${u8.byteLength}`);
   }
-  const headerOnly = hasFlag(header, Flags.HEADER_ONLY);
-  if (headerOnly) return { header, headerOnly, bars: EMPTY, bins: null, features: null };
+  if (headerOnly) {
+    return { header, headerOnly, bars: EMPTY, bins: null, features: null, waveform: null };
+  }
 
   // A view needs a 4-byte aligned offset; IPC responses start at offset 0. Copy otherwise.
   const floats = (byteStart: number, count: number): Float32Array => {
@@ -163,6 +186,7 @@ export function decodeFrame(bytes: ArrayBuffer | Uint8Array): DecodedFrame {
     bars: floats(barsAt, header.barCount),
     bins: bins ? floats(binsAt, bins) : null,
     features: features ? floats(featuresAt, features) : null,
+    waveform: waveformCount === null ? null : floats(featuresAt + features * 4 + 4, waveformCount),
   };
 }
 
@@ -175,12 +199,17 @@ export function encodeFrame(frame: {
   bars: ArrayLike<number>;
   bins?: ArrayLike<number> | null;
   features?: ArrayLike<number> | null;
+  waveform?: ArrayLike<number> | null;
 }): Uint8Array {
-  let flags = frame.header.flags & DEFINED_MASK & ~(Flags.BINS_PRESENT | Flags.FEATURES_PRESENT);
+  let flags =
+    frame.header.flags &
+    DEFINED_MASK &
+    ~(Flags.BINS_PRESENT | Flags.FEATURES_PRESENT | Flags.WAVEFORM_PRESENT);
   if (frame.bins) flags |= Flags.BINS_PRESENT;
   if (frame.features) flags |= Flags.FEATURES_PRESENT;
+  if (frame.waveform) flags |= Flags.WAVEFORM_PRESENT;
   const header = { ...frame.header, flags };
-  const out = new Uint8Array(encodedLength(header));
+  const out = new Uint8Array(encodedLength(header, frame.waveform ? frame.waveform.length : null));
   const view = new DataView(out.buffer);
   const words = [
     header.sequence,
@@ -198,6 +227,13 @@ export function encodeFrame(frame: {
   for (const arr of [frame.bars, frame.bins, frame.features]) {
     if (!arr) continue;
     for (let i = 0; i < arr.length; i++, at += 4) view.setFloat32(at, arr[i]!, true);
+  }
+  if (frame.waveform) {
+    view.setUint32(at, frame.waveform.length, true);
+    at += 4;
+    for (let i = 0; i < frame.waveform.length; i++, at += 4) {
+      view.setFloat32(at, frame.waveform[i]!, true);
+    }
   }
   return out;
 }

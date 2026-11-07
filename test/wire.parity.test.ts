@@ -20,6 +20,7 @@ interface FrameCase {
   bars: number[];
   bins: number[] | null;
   features: number[] | null;
+  waveform: number[] | null;
 }
 interface ErrorCase {
   name: string;
@@ -39,8 +40,8 @@ const bits = (values: ArrayLike<number>) =>
   Array.from(new Uint32Array(Float32Array.from(values).buffer));
 
 describe("wire parity with Rust fixtures", () => {
-  test("the manifest is wire v1 and covers the required cases", () => {
-    expect(manifest.wireVersion).toBe(1);
+  test("the manifest is wire v2 and covers the required cases", () => {
+    expect(manifest.wireVersion).toBe(2);
     const names = manifest.cases.map((c) => c.name);
     for (const required of [
       "sequence_max",
@@ -48,6 +49,9 @@ describe("wire parity with Rust fixtures", () => {
       "header_only",
       "timestamp_64bit",
       "reject_unknown_version",
+      "waveform_present",
+      "v1_frame_still_reads",
+      "reject_waveform_in_v1",
     ]) {
       expect(names).toContain(required);
     }
@@ -76,8 +80,14 @@ describe("wire parity with Rust fixtures", () => {
       expect(d.features === null ? null : bits(d.features)).toEqual(
         c.features === null ? null : bits(c.features),
       );
+      expect(d.waveform === null ? null : bits(d.waveform)).toEqual(
+        c.waveform === null ? null : bits(c.waveform),
+      );
       expect(d.headerOnly).toBe(hasFlag(c.header, Flags.HEADER_ONLY));
     });
+
+    // A legacy v1 frame decodes, but this build writes v2.
+    if (bytesOf(c)[27] === 1) continue;
 
     test(`${c.name}: re-encodes byte for byte`, () => {
       const encoded = encodeFrame({
@@ -85,6 +95,7 @@ describe("wire parity with Rust fixtures", () => {
         bars: c.bars,
         bins: c.bins,
         features: c.features,
+        waveform: c.waveform,
       });
       expect(Array.from(encoded)).toEqual(Array.from(bytesOf(c)));
     });

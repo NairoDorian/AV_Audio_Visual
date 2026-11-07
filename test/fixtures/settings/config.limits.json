@@ -154,6 +154,13 @@
     "path": "analysis.releaseMs"
   },
   {
+    "default": 800.0,
+    "integer": true,
+    "max": 4096.0,
+    "min": 0.0,
+    "path": "analysis.waveformSamples"
+  },
+  {
     "default": 0.0,
     "integer": false,
     "max": 400.0,

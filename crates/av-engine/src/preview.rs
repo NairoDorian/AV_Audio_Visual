@@ -1,7 +1,9 @@
 //! Wire encoding for the Studio preview and external clients (pre-plan 5.4): the renderer reads
 //! the slot ring in place; only this path encodes, into a buffer reused across calls.
 
-use av_protocol::frame::{FrameFlags, FrameHeader, HEADER_BYTES, MAX_BARS, MAX_BINS};
+use av_protocol::frame::{
+    FEATURE_COUNT, FrameFlags, FrameHeader, HEADER_BYTES, MAX_BARS, MAX_BINS, MAX_WAVEFORM,
+};
 use av_protocol::wire::{self, FrameParts};
 
 use crate::slot_ring::{FrameCopy, FrameReader};
@@ -17,7 +19,10 @@ impl Default for PreviewEncoder {
     fn default() -> Self {
         Self {
             copy: FrameCopy::default(),
-            buf: vec![0u8; HEADER_BYTES + (MAX_BARS + MAX_BINS) * 4],
+            buf: vec![
+                0u8;
+                HEADER_BYTES + (MAX_BARS + MAX_BINS + FEATURE_COUNT + 1 + MAX_WAVEFORM) * 4
+            ],
         }
     }
 }
@@ -52,6 +57,7 @@ impl PreviewEncoder {
                     bars: self.copy.bars(),
                     bins: self.copy.bins(),
                     features: None,
+                    waveform: self.copy.waveform(),
                 },
                 &mut self.buf,
             )

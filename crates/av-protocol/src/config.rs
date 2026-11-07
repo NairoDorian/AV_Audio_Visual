@@ -317,6 +317,9 @@ pub struct AnalysisConfig {
     // --- Performance ---
     /// Centroid, rolloff, flatness, flux, RMS and band powers in the status.
     pub spectral_features: bool,
+    /// Raw audio scope: the newest samples, half-sine tapered, sent with every frame (0 = off;
+    /// 800 is one 60 fps frame at 48 kHz). docs/super-fft.md section 4.
+    pub waveform_samples: u32,
     pub parallel_layers: ParallelLayers,
 }
 
@@ -392,6 +395,7 @@ impl Default for AnalysisConfig {
             attack_ms: 15.0,
             release_ms: 250.0,
             spectral_features: false,
+            waveform_samples: 800,
             parallel_layers: ParallelLayers::Auto,
         }
     }
@@ -473,12 +477,13 @@ macro_rules! analysis_limits {
             limit!($ty, "analysis.release", 0, 0.99, float, $($root)+.release),
             limit!($ty, "analysis.attackMs", 0, 2_000, float, $($root)+.attack_ms),
             limit!($ty, "analysis.releaseMs", 0, 5_000, float, $($root)+.release_ms),
+            limit!($ty, "analysis.waveformSamples", 0, $crate::frame::MAX_WAVEFORM, int, $($root)+.waveform_samples),
         ]
     };
 }
 pub(crate) use analysis_limits;
 
-static ANALYSIS_LIMITS: [Limit<AppConfig>; 22] = analysis_limits!(AppConfig, analysis);
+static ANALYSIS_LIMITS: [Limit<AppConfig>; 23] = analysis_limits!(AppConfig, analysis);
 
 static OTHER_LIMITS: [Limit<AppConfig>; 7] = [
     limit!(

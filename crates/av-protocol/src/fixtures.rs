@@ -29,6 +29,7 @@ pub enum Expect {
         bars: Vec<f32>,
         bins: Option<Vec<f32>>,
         features: Option<Vec<f32>>,
+        waveform: Option<Vec<f32>>,
     },
     /// The `WireError` variant name a decoder must report.
     Error(&'static str),
@@ -53,18 +54,31 @@ fn frame(
     bins: Option<Vec<f32>>,
     features: Option<Vec<f32>>,
 ) -> Case {
+    frame_with(name, h, bars, bins, features, None)
+}
+
+fn frame_with(
+    name: &'static str,
+    h: FrameHeader,
+    bars: Vec<f32>,
+    bins: Option<Vec<f32>>,
+    features: Option<Vec<f32>>,
+    waveform: Option<Vec<f32>>,
+) -> Case {
     let parts = FrameParts {
         header: h,
         bars: &bars,
         bins: bins.as_deref(),
         features: features.as_deref(),
+        waveform: waveform.as_deref(),
     };
     let mut bytes = vec![
         0u8;
         HEADER_BYTES
             + (bars.len()
                 + bins.as_ref().map_or(0, Vec::len)
-                + features.as_ref().map_or(0, Vec::len))
+                + features.as_ref().map_or(0, Vec::len)
+                + waveform.as_ref().map_or(0, |w| w.len() + 1))
                 * 4
     ];
     let n = encode(&parts, &mut bytes).expect("fixture encodes");
@@ -74,6 +88,9 @@ fn frame(
     header
         .flags
         .set(FrameFlags::FEATURES_PRESENT, features.is_some());
+    header
+        .flags
+        .set(FrameFlags::WAVEFORM_PRESENT, waveform.is_some());
     Case {
         name,
         bytes,
@@ -82,6 +99,7 @@ fn frame(
             bars,
             bins,
             features,
+            waveform,
         },
     }
 }
@@ -145,6 +163,22 @@ pub fn cases() -> Vec<Case> {
             None,
             None,
         ),
+        frame_with(
+            "waveform_present",
+            header(8, 8_000_000, 2048, 2),
+            vec![0.25, 0.75],
+            None,
+            Some(ramp(FEATURE_COUNT, 0.5)),
+            Some(vec![0.0, 0.5, -0.5, 1.0, -1.0, 0.0]),
+        ),
+        frame_with(
+            "waveform_empty",
+            header(9, 9_000_000, 2048, 1),
+            vec![0.5],
+            None,
+            None,
+            Some(vec![]),
+        ),
     ];
 
     let ho = {
@@ -162,21 +196,55 @@ pub fn cases() -> Vec<Case> {
                 bars: vec![],
                 bins: None,
                 features: None,
+                waveform: None,
             },
         }
     };
     out.push(ho);
 
+    // A v1 frame (as the previous build wrote it) still decodes.
+    let mut v1 = out[0].bytes.clone();
+    v1[27] = 1;
+    let mut v1_case = out[0].clone();
+    v1_case.name = "v1_frame_still_reads";
+    v1_case.bytes = v1;
+    out.push(v1_case);
+    // ... but bit 6 is reserved in v1.
+    let mut v1_wave = out
+        .iter()
+        .find(|c| c.name == "waveform_present")
+        .expect("case exists")
+        .bytes
+        .clone();
+    v1_wave[27] = 1;
+    out.push(Case {
+        name: "reject_waveform_in_v1",
+        bytes: v1_wave,
+        expect: Expect::Error("ReservedBitsSet"),
+    });
+    let mut long_wave = header(10, 0, 2048, 0);
+    long_wave.flags = FrameFlags::WAVEFORM_PRESENT;
+    let mut long_bytes = vec![0u8; HEADER_BYTES + 4];
+    for (i, w) in long_wave.to_words().iter().enumerate() {
+        long_bytes[i * 4..i * 4 + 4].copy_from_slice(&w.to_le_bytes());
+    }
+    long_bytes[HEADER_BYTES..].copy_from_slice(&4097u32.to_le_bytes());
+    out.push(Case {
+        name: "reject_waveform_too_long",
+        bytes: long_bytes,
+        expect: Expect::Error("WaveformTooLong"),
+    });
+
     let basic = out[0].bytes.clone();
     let mut unknown_version = basic.clone();
-    unknown_version[27] = 2;
+    unknown_version[27] = 3;
     out.push(Case {
         name: "reject_unknown_version",
         bytes: unknown_version,
         expect: Expect::Error("UnknownVersion"),
     });
     let mut reserved = basic.clone();
-    reserved[24] |= 1 << 6;
+    reserved[24] |= 1 << 7;
     out.push(Case {
         name: "reject_reserved_bits",
         bytes: reserved,
@@ -210,7 +278,10 @@ fn floats(out: &mut String, values: &[f32]) {
 
 /// The manifest describing every case, as pretty JSON.
 pub fn manifest(cases: &[Case]) -> String {
-    let mut s = String::from("{\n  \"wireVersion\": 1,\n  \"cases\": [\n");
+    let mut s = format!(
+        "{{\n  \"wireVersion\": {},\n  \"cases\": [\n",
+        crate::frame::WIRE_VERSION
+    );
     for (i, case) in cases.iter().enumerate() {
         let _ = write!(
             s,
@@ -226,6 +297,7 @@ pub fn manifest(cases: &[Case]) -> String {
                 bars,
                 bins,
                 features,
+                waveform,
             } => {
                 let _ = write!(
                     s,
@@ -240,7 +312,11 @@ pub fn manifest(cases: &[Case]) -> String {
                     h.generation
                 );
                 floats(&mut s, bars);
-                for (key, v) in [("bins", bins), ("features", features)] {
+                for (key, v) in [
+                    ("bins", bins),
+                    ("features", features),
+                    ("waveform", waveform),
+                ] {
                     let _ = write!(s, ", \"{key}\": ");
                     match v {
                         Some(v) => floats(&mut s, v),
@@ -319,6 +395,7 @@ mod tests {
                         bars,
                         bins,
                         features,
+                        waveform,
                     },
                     Ok(d),
                 ) => {
@@ -331,6 +408,10 @@ mod tests {
                     assert_eq!(
                         d.features().map(|b| b.iter().collect::<Vec<_>>()),
                         *features
+                    );
+                    assert_eq!(
+                        d.waveform().map(|b| b.iter().collect::<Vec<_>>()),
+                        *waveform
                     );
                 }
                 (_, r) => panic!("{}: unexpected {r:?}", case.name),

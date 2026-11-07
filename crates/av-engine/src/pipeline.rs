@@ -8,7 +8,7 @@
 
 use std::time::Instant;
 
-use av_dsp::Analyzer;
+use av_dsp::{Analyzer, Scope};
 use av_protocol::config::ChannelMode;
 use av_protocol::frame::{FrameFlags, FrameHeader};
 
@@ -30,6 +30,7 @@ pub struct HopStats {
 #[derive(Debug)]
 pub struct Pipeline {
     analyzer: Analyzer,
+    scope: Scope,
     generation: u32,
     channels: usize,
     hop: Vec<f32>,
@@ -44,6 +45,7 @@ impl Pipeline {
     pub fn new(analyzer: Analyzer, generation: u32, channels: u16, origin_us: u64) -> Self {
         let hop = vec![0.0; analyzer.config().hop_samples];
         Self {
+            scope: Scope::new(analyzer.config().settings.waveform_samples as usize),
             analyzer,
             generation,
             channels: channels.max(1) as usize,
@@ -82,6 +84,10 @@ impl Pipeline {
         }
         self.filled = 0;
         self.generation = generation;
+        let scope = analyzer.config().settings.waveform_samples as usize;
+        if scope != self.scope.len() {
+            self.scope = Scope::new(scope);
+        }
         std::mem::replace(&mut self.analyzer, analyzer)
     }
 
@@ -90,6 +96,7 @@ impl Pipeline {
         self.frames_consumed += lost_frames;
         self.filled = 0;
         self.analyzer.reset_continuity();
+        self.scope.clear();
     }
 
     /// Reduces interleaved samples to the analysed channel (FFT CHOP "Channels": the mono mix
@@ -104,10 +111,12 @@ impl Pipeline {
             _ => 0,
         };
         for frame in interleaved.chunks_exact(ch) {
-            self.hop[self.filled] = match mode {
+            let x = match mode {
                 ChannelMode::MonoMix => frame.iter().sum::<f32>() * scale,
                 ChannelMode::Left | ChannelMode::Right => frame[pick],
             };
+            self.hop[self.filled] = x;
+            self.scope.push(x);
             self.filled += 1;
             self.frames_consumed += 1;
             if self.filled == self.hop.len() {
@@ -122,6 +131,9 @@ impl Pipeline {
     /// Publishes one hop of silence (starved source). Silence is a frame, never a freeze.
     pub fn feed_silence(&mut self, writer: &mut SlotWriter) {
         self.hop.fill(0.0);
+        for _ in 0..self.hop.len() {
+            self.scope.push(0.0);
+        }
         self.frames_consumed += self.hop.len() as u64;
         self.filled = 0;
         self.analyze_hop(writer);
@@ -151,7 +163,7 @@ impl Pipeline {
             flags,
             generation: self.generation,
         };
-        writer.publish(&header, frame.bars, None);
+        writer.publish_with(&header, frame.bars, None, self.scope.frame());
         let us = started.elapsed().as_secs_f64() * 1e6;
         self.stats.hops += 1;
         self.stats.total_us += us;

@@ -108,7 +108,7 @@ describe("frame bus", () => {
     const h = harness({ value: 1 });
     h.deps.fetchFrame = async () => {
       const bytes = encodeFrame({ header: header(1), bars: [0.5, 0.5, 0.5] });
-      bytes[27] = 2; // wire version 2
+      bytes[27] = 3; // a wire version this build cannot read
       return bytes;
     };
     const bus = new FrameBus(h.deps);

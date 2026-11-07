@@ -61,6 +61,8 @@ export interface AnalysisConfig {
   attackMs: number;
   releaseMs: number;
   spectralFeatures: boolean;
+  /** Raw audio scope samples per frame, half-sine tapered (0 = off). */
+  waveformSamples: number;
   parallelLayers: "auto" | "always" | "never";
 }
 

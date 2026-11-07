@@ -1,13 +1,14 @@
-//! Binary wire format v1: the 8-word header, then `bar_count` f32 bars, then
+//! Binary wire format v2: the 8-word header, then `bar_count` f32 bars, then
 //! `fft_size / 2 + 1` f32 bins if `BINS_PRESENT`, then `FEATURE_COUNT` f32 features if
-//! `FEATURES_PRESENT`. Little-endian, IEEE-754, no padding. A header-only reply is the 32-byte
-//! header with `HEADER_ONLY` set.
+//! `FEATURES_PRESENT`, then (v2) a u32 count and that many f32 waveform samples if
+//! `WAVEFORM_PRESENT`. Little-endian, IEEE-754, no padding. A header-only reply is the 32-byte
+//! header with `HEADER_ONLY` set. v1 frames (no waveform) still decode.
 //!
 //! Neither direction allocates: `encode` writes into a caller-owned buffer (reused by the
 //! preview command), `decode` borrows the payload bytes. The native renderer never uses this
 //! module; it reads the slot ring in place (pre-plan section 5.4).
 
-use crate::frame::{FrameFlags, FrameHeader, HEADER_BYTES, HEADER_WORDS, WireError};
+use crate::frame::{FrameFlags, FrameHeader, HEADER_BYTES, HEADER_WORDS, MAX_WAVEFORM, WireError};
 
 /// The parts of a frame to encode. Slice lengths must match the header.
 #[derive(Debug, Clone, Copy)]
@@ -16,6 +17,17 @@ pub struct FrameParts<'a> {
     pub bars: &'a [f32],
     pub bins: Option<&'a [f32]>,
     pub features: Option<&'a [f32]>,
+    pub waveform: Option<&'a [f32]>,
+}
+
+/// Bytes of a full frame for `header` with a waveform of `waveform` samples (if any).
+pub const fn frame_len(header: &FrameHeader, waveform: Option<usize>) -> usize {
+    match waveform {
+        Some(n) if !header.flags.contains(FrameFlags::HEADER_ONLY) => {
+            header.encoded_len() + 4 + n * 4
+        }
+        _ => header.encoded_len(),
+    }
 }
 
 /// Writes a full frame into `out` and returns the number of bytes written.
@@ -36,7 +48,15 @@ pub fn encode(parts: &FrameParts<'_>, out: &mut [u8]) -> Result<usize, WireError
     header
         .flags
         .set(FrameFlags::FEATURES_PRESENT, parts.features.is_some());
+    header
+        .flags
+        .set(FrameFlags::WAVEFORM_PRESENT, parts.waveform.is_some());
     header.validate()?;
+    if let Some(w) = parts.waveform
+        && w.len() > MAX_WAVEFORM
+    {
+        return Err(WireError::WaveformTooLong(w.len() as u32));
+    }
     if parts.bars.len() != header.bar_count as usize {
         return Err(WireError::PayloadMismatch("bars length != bar_count"));
     }
@@ -55,7 +75,7 @@ pub fn encode(parts: &FrameParts<'_>, out: &mut [u8]) -> Result<usize, WireError
         ));
     }
 
-    let needed = header.encoded_len();
+    let needed = frame_len(&header, parts.waveform.map(<[f32]>::len));
     if out.len() < needed {
         return Err(WireError::BufferTooSmall {
             needed,
@@ -76,6 +96,14 @@ pub fn encode(parts: &FrameParts<'_>, out: &mut [u8]) -> Result<usize, WireError
     }
     if let Some(features) = parts.features {
         put(features);
+    }
+    if let Some(waveform) = parts.waveform {
+        out[at..at + 4].copy_from_slice(&(waveform.len() as u32).to_le_bytes());
+        at += 4;
+        for v in waveform {
+            out[at..at + 4].copy_from_slice(&v.to_le_bytes());
+            at += 4;
+        }
     }
     debug_assert_eq!(at, needed);
     Ok(needed)
@@ -128,6 +156,7 @@ pub struct Decoded<'a> {
     bars: &'a [u8],
     bins: &'a [u8],
     features: &'a [u8],
+    waveform: Option<&'a [u8]>,
 }
 
 impl<'a> Decoded<'a> {
@@ -150,6 +179,10 @@ impl<'a> Decoded<'a> {
             .contains(FrameFlags::FEATURES_PRESENT)
             .then_some(F32Le(self.features))
             .filter(|_| !self.is_header_only())
+    }
+    /// The tapered raw-audio scope (v2), if present.
+    pub fn waveform(&self) -> Option<F32Le<'a>> {
+        self.waveform.map(F32Le)
     }
 }
 
@@ -183,7 +216,25 @@ impl<'a> F32Le<'a> {
 /// Decodes a whole frame. The byte length must match the header exactly.
 pub fn decode(bytes: &[u8]) -> Result<Decoded<'_>, WireError> {
     let header = decode_header(bytes)?;
-    let expected = header.encoded_len();
+    let base = header.encoded_len();
+    let waveform_len = if header.flags.contains(FrameFlags::WAVEFORM_PRESENT)
+        && !header.flags.contains(FrameFlags::HEADER_ONLY)
+    {
+        let Some(b) = bytes.get(base..base + 4) else {
+            return Err(WireError::Truncated {
+                needed: base + 4,
+                got: bytes.len(),
+            });
+        };
+        let n = u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+        if n as usize > MAX_WAVEFORM {
+            return Err(WireError::WaveformTooLong(n));
+        }
+        Some(n as usize)
+    } else {
+        None
+    };
+    let expected = frame_len(&header, waveform_len);
     if bytes.len() < expected {
         return Err(WireError::Truncated {
             needed: expected,
@@ -204,14 +255,16 @@ pub fn decode(bytes: &[u8]) -> Result<Decoded<'_>, WireError> {
         (
             &bytes[HEADER_BYTES..bars_end],
             &bytes[bars_end..bins_end],
-            &bytes[bins_end..expected],
+            &bytes[bins_end..base],
         )
     };
+    let waveform = waveform_len.map(|_| &bytes[base + 4..expected]);
     Ok(Decoded {
         header,
         bars,
         bins,
         features,
+        waveform,
     })
 }
 
@@ -242,6 +295,7 @@ mod tests {
             bars: &bars,
             bins: Some(&bins),
             features: Some(&features),
+            waveform: None,
         };
         let mut buf = [0u8; 256];
         let n = encode(&parts, &mut buf).unwrap();
@@ -268,6 +322,7 @@ mod tests {
             bars: &[0.5],
             bins: None,
             features: None,
+            waveform: None,
         };
         let mut buf = [0u8; 64];
         let n = encode(&parts, &mut buf).unwrap();
@@ -295,6 +350,7 @@ mod tests {
                 bars: &[1.0, 2.0],
                 bins: None,
                 features: None,
+                waveform: None,
             },
             &mut buf,
         )
@@ -321,6 +377,7 @@ mod tests {
             bars: &[1.0],
             bins: None,
             features: None,
+            waveform: None,
         };
         assert!(matches!(
             encode(&parts, &mut [0u8; 64]),
