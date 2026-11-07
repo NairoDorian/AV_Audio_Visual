@@ -19,6 +19,14 @@ What is implemented versus planned, kept truthful (AGENTS.md section 8). Steps r
 | A9 headless render | Not started | wgpu instanced bars, offscreen target, premultiplied invariant | - |
 | A10 platform | Not started | Monitor ids, DPI, `SurfaceHost` state machine with a fake host | - |
 
+## Analysis goal: Super FFT (ADR-020, docs/super-fft.md)
+
+| Item | State |
+| :-- | :-- |
+| Layered FFT (1-6 layers, zero-padded, 1/2^(k-1) scaled, averaged) | In progress |
+| FFT CHOP integration (Kaiser, warps, ITU-R 468, EQ, aggregation, output modes) | Kaiser in progress; rest planned |
+| Concentric spectrum view (ZER0 circular scope) | In progress (Studio preview) |
+
 ## Phase 0.5, Track B (platform spikes)
 
 P0.2 overlay, P0.3 WASAPI loopback, P0.6 lifecycle, P0.7 latency, P0.8 Background, P0.9 Taskbar:

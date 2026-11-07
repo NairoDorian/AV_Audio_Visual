@@ -122,8 +122,8 @@ core claim from the long tail.
 | Area | P0: v0.1 (must ship) | P1: v0.2-v0.4 | P2: v0.5+ / later |
 | :-- | :-- | :-- | :-- |
 | Audio sources | WASAPI loopback, CPAL microphone | macOS tap/ScreenCaptureKit, PipeWire monitor, default-device changes | Per-process capture, mixed sources, file playback as a first-class source |
-| Analysis | 2048/75% real FFT, 48 per-bar bands, Hann, dB, time ballistics, auto-gain | Multi-tier bass, A/C/Z weighting, EQ, stereo features, BS.1770 loudness | GPU compute analysis, true-peak metering, advanced psychoacoustic layouts |
-| Visualizers | Bars, line, area, mirrored bars | Radial, waveform, spectrogram/waterfall, VU/peak meter scene with mic + system side by side (Audio HUD) | Goniometer, particles, trails, bloom, reflections, 3D scenes |
+| Analysis | Layered FFT (1,024-32,768 windows, zero-padded, scaled and averaged), 48 per-bar bands, Hann/Kaiser, dB, time ballistics, auto-gain | Multi-tier bass, A/C/Z weighting, EQ, stereo features, BS.1770 loudness | GPU compute analysis, true-peak metering, advanced psychoacoustic layouts |
+| Visualizers | Bars, line, area, mirrored bars, concentric ring (ZER0 circular spectrum) | Radial, waveform, spectrogram/waterfall, VU/peak meter scene with mic + system side by side (Audio HUD) | Goniometer, particles, trails, bloom, reflections, 3D scenes |
 | UX | Settings studio, scene save/load, tray, diagnostics, **show/hide and click-through hotkeys + tray escape hatches**, overlay move/resize/snap, muted state | Share codes, per-monitor scenes, layout edit mode for all placements, configurable hotkeys | Lyrics, media cards, onboarding library |
 | Hosts | Single-monitor transparent overlay (spikes prove Background and Taskbar feasibility) | Multi-monitor overlay, Background mode, Taskbar strip | Native Windows taskbar surface, menu-bar extra polish, uiAccess z-band (ADR-018) |
 | Media | None | Album art and deterministic palette | SMTC/MPRIS/Now Playing, lyrics, transport |
@@ -365,6 +365,12 @@ in-app audio age.
 
 ### 4.5 DSP
 
+- **Layered FFT ("Super FFT", ADR-020), the analysis goal:** 1-6 FFTs per hop with windows of
+  1,024, 2,048, ... up to 32,768 samples, all zero-padded to one FFT size, each scaled by
+  `1/2^(k-1)` (window-length normalization) and averaged per bin: the shortest layer keeps the
+  bars reactive, the longest resolves the low end. Plan, optimizations and gates:
+  [`docs/super-fft.md`](docs/super-fft.md), which also maps the full integration of the
+  TouchDesigner FFT CHOP (Kaiser, warps, ITU-R 468, EQ, aggregation, output modes).
 - Capture at the endpoint mix format; normalize to 48 kHz stereo in the worker. Downmix to mono for
   the main bars, preserve stereo for width/correlation.
 - 2048-point real FFT, 512-sample hop, Hann by default; Blackman-Harris and Kaiser available.
