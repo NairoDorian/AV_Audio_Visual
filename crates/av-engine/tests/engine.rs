@@ -61,7 +61,7 @@ fn file_frames_match_the_analyzer_bit_for_bit() {
     assert_eq!(f.header.sequence, published as u32);
     assert_eq!(f.header.generation, 7);
     assert_eq!(f.header.sample_rate, SR);
-    assert_eq!(f.header.fft_size, 2048);
+    assert_eq!(f.header.fft_size as usize, cfg.fft_size);
     let newest_sample = (published * hop) as u64;
     assert_eq!(
         f.header.timestamp_us,
@@ -203,7 +203,7 @@ fn the_preview_encoder_answers_header_only_when_nothing_changed() {
     let mut p = Pipeline::new(
         analyzer(SpectrumConfig {
             emit_bins: true,
-            ..SpectrumConfig::default()
+            ..SpectrumConfig::single(2048, 2048, 512)
         }),
         1,
         1,

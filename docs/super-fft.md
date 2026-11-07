@@ -88,12 +88,33 @@ squared and summed over every bin (`ENBW_eff`). With one layer this reduces to t
 5. **No parallel fan-out on the audio path** (CHOP study section 9). If 6 layers ever miss the
    budget, decimation comes first; a second worker is the last resort.
 
-### 1.6 Gates
+### 1.6 Measured resolution (2026-11-07)
+
+Dip contrast between two equal tones near 60 Hz (peak power over midpoint power, dB), FFT size
+32,768 for every row, `cargo run --release -p av-dsp --example layer_resolution`:
+
+| Separation | L=1 | L=2 | L=3 | L=4 | L=5 | L=6 |
+| --: | --: | --: | --: | --: | --: | --: |
+| 5.9 Hz | -0.02 | -0.05 | -0.12 | -0.09 | 0.41 | 1.75 |
+| 8.8 Hz | -0.05 | -0.11 | -0.19 | 0.20 | 1.45 | 2.83 |
+| 11.7 Hz | -0.08 | -0.17 | -0.13 | 0.60 | 2.27 | 3.69 |
+| 17.6 Hz | -0.18 | -0.30 | 0.28 | 1.92 | 3.67 | 5.14 |
+| 29.3 Hz | -0.43 | -0.09 | 1.61 | 3.84 | 5.69 | 7.21 |
+| 58.6 Hz | -0.34 | 3.06 | 6.32 | 8.79 | 10.71 | 12.28 |
+
+Every added layer sharpens the low end, as designed. Because the average gives each layer an
+equal vote, the shorter layers partly fill the gap between close low tones: a single 32,768
+window alone would separate them more sharply, at the cost of reactivity. A candidate for later
+A/B (not a change of the design): **frequency-dependent layer weights**, letting long layers
+dominate below a few hundred Hz and short layers above.
+
+### 1.7 Gates
 
 - A full-scale sine at a bin centre reads 0 dB +-0.5 for every `L` and `zeroPad`.
 - Pink noise stays flat (+-2 dB, 100 Hz-10 kHz) in layered mode.
-- Two tones 3 Hz apart near 60 Hz are separated by the 6-layer analysis and not by the 1,024
-  layer alone (resolution gate).
+- Resolution: two equal tones 11.7 Hz apart near 60 Hz show more than 3 dB of dip with 6
+  layers and none with the 1,024 layer alone; at 5.9 Hz, 6 layers beat 1 layer by more than
+  1.5 dB (`tests/layered.rs`).
 - A step onset raises the top bars within one hop at every `L` (reactivity gate).
 - Zero allocations per hop; p99 within budget.
 

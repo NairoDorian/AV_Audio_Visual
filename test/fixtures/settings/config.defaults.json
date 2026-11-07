@@ -6,7 +6,9 @@
     "avOffsetMs": 0.0
   },
   "analysis": {
-    "preset": "default",
+    "preset": "layered",
+    "layers": 4,
+    "zeroPad": 2,
     "barCount": 48,
     "layout": "log",
     "minHz": 30.0,

@@ -9,6 +9,7 @@ use std::hint::black_box;
 fn bench(c: &mut Criterion) {
     let mut plans = PlanCache::default();
     for (name, preset) in [
+        ("layered_default_l4_pad2", FftPreset::Layered),
         ("default_2048_48bars", FftPreset::Default),
         ("low_latency_1024", FftPreset::LowLatency),
         ("precision_8192", FftPreset::Precision),

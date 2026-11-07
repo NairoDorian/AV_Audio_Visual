@@ -66,14 +66,16 @@ impl Default for AudioConfig {
     }
 }
 
-/// FFT presets (ADR-017 defaults).
+/// FFT presets (ADR-017 defaults; `Layered` is ADR-020).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FftPreset {
+    /// Layered "Super FFT": `layers` windows of 1024 * 2^(k-1), hop 512.
+    #[default]
+    Layered,
     /// 1024 / 256 hop.
     LowLatency,
     /// 2048 / 512 hop (75% overlap).
-    #[default]
     Default,
     /// 8192 / 1024 hop, 30 fps.
     Precision,
@@ -82,9 +84,11 @@ pub enum FftPreset {
 }
 
 impl FftPreset {
-    /// `(fft_size, hop_samples)` at 48 kHz.
+    /// `(window_samples, hop_samples)` at 48 kHz. For `Layered` the window is the base
+    /// (shortest) layer.
     pub const fn sizes(self) -> (u32, u32) {
         match self {
+            Self::Layered => (1024, 512),
             Self::LowLatency => (1024, 256),
             Self::Default => (2048, 512),
             Self::Precision => (8192, 1024),
@@ -106,6 +110,10 @@ pub enum BandLayout {
 #[serde(rename_all = "camelCase")]
 pub struct AnalysisConfig {
     pub preset: FftPreset,
+    /// Layer count for the `Layered` preset (1-6; 6 reaches a 32,768-sample window).
+    pub layers: u32,
+    /// FFT size = largest window x this (1, 2 or 4): zero-padding for every preset.
+    pub zero_pad: u32,
     pub bar_count: u32,
     pub layout: BandLayout,
     pub min_hz: f32,
@@ -120,7 +128,9 @@ pub struct AnalysisConfig {
 impl Default for AnalysisConfig {
     fn default() -> Self {
         Self {
-            preset: FftPreset::Default,
+            preset: FftPreset::Layered,
+            layers: 4,
+            zero_pad: 2,
             bar_count: 48,
             layout: BandLayout::Log,
             min_hz: 30.0,
@@ -176,6 +186,8 @@ impl Default for OverlayConfig {
 }
 
 pub static LIMITS: &[Limit<AppConfig>] = &[
+    limit!(AppConfig, "analysis.layers", 1, 6, int, analysis.layers),
+    limit!(AppConfig, "analysis.zeroPad", 1, 4, int, analysis.zero_pad),
     limit!(
         AppConfig,
         "audio.avOffsetMs",
@@ -304,6 +316,10 @@ impl Versioned for AppConfig {
 
     fn normalize(&mut self, notes: &mut Vec<String>) {
         let a = &mut self.analysis;
+        if a.zero_pad == 3 {
+            a.zero_pad = 4;
+            notes.push("analysis.zeroPad must be 1, 2 or 4; 3 raised to 4".into());
+        }
         if a.max_hz < a.min_hz * MIN_BAND_RATIO {
             a.max_hz = (a.min_hz * MIN_BAND_RATIO).min(24_000.0);
             a.min_hz = a.min_hz.min(a.max_hz / MIN_BAND_RATIO);

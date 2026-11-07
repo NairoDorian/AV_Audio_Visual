@@ -42,11 +42,17 @@ fn allocations() -> usize {
 
 #[test]
 fn steady_state_hops_never_allocate() {
-    for emit_bins in [false, true] {
-        let cfg = SpectrumConfig {
-            emit_bins,
-            ..SpectrumConfig::default()
-        };
+    // The layered default (4 layers, N = 16,384), six layers, and a classic window with bins.
+    let configs = [
+        SpectrumConfig::default(),
+        SpectrumConfig::layered(6, 1),
+        SpectrumConfig::single(2048, 2048, 512),
+    ];
+    for (cfg, emit_bins) in configs
+        .into_iter()
+        .flat_map(|c| [(c.clone(), false), (c, true)])
+    {
+        let cfg = SpectrumConfig { emit_bins, ..cfg };
         let mut plans = PlanCache::default();
         let mut a = Analyzer::new(cfg.clone(), plans.get(cfg.fft_size)).unwrap();
         let hop: Vec<f32> = (0..cfg.hop_samples)

@@ -1,5 +1,19 @@
 [
   {
+    "default": 4.0,
+    "integer": true,
+    "max": 6.0,
+    "min": 1.0,
+    "path": "analysis.layers"
+  },
+  {
+    "default": 2.0,
+    "integer": true,
+    "max": 4.0,
+    "min": 1.0,
+    "path": "analysis.zeroPad"
+  },
+  {
     "default": 0.0,
     "integer": false,
     "max": 400.0,

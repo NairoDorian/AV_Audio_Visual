@@ -82,7 +82,7 @@ fn full_scale_sine_reads_0_db_with_band_reference() {
     let cfg = SpectrumConfig {
         bar_count: 8,
         level_ref: LevelRef::Band,
-        ..raw(SpectrumConfig::default())
+        ..raw(SpectrumConfig::single(2048, 2048, 512))
     };
     let mut a = analyzer(cfg);
     let f = 43.0 * SR as f64 / 2048.0; // bin 43 = 1007.8 Hz
@@ -167,7 +167,17 @@ fn pink() -> impl FnMut(usize) -> f32 {
 
 #[test]
 fn pink_noise_is_flat_within_1_5_db_from_100_hz_to_10_khz() {
-    let cfg = raw(SpectrumConfig::default()); // ThirdOctave reference, 48 log bars
+    // Classic single window, ThirdOctave reference, 48 log bars.
+    assert_pink_flat(raw(SpectrumConfig::single(2048, 2048, 512)), 1.5);
+}
+
+#[test]
+fn pink_noise_is_flat_within_2_db_in_layered_mode() {
+    assert_pink_flat(raw(SpectrumConfig::layered(4, 2)), 2.0);
+}
+
+/// Returns the worst deviation from the mean level, in dB, after asserting the tolerance.
+fn assert_pink_flat(cfg: SpectrumConfig, tolerance_db: f64) -> f64 {
     let mut a = analyzer(cfg);
     let hop = a.config().hop_samples;
     let dt = hop as f32 / SR as f32;
@@ -200,13 +210,16 @@ fn pink_noise_is_flat_within_1_5_db_from_100_hz_to_10_khz() {
         .map(|(c, l)| (*c, *l))
         .collect();
     let mean = in_range.iter().map(|(_, l)| l).sum::<f64>() / in_range.len() as f64;
+    let mut worst = 0.0f64;
     for (c, l) in &in_range {
+        worst = worst.max((l - mean).abs());
         assert!(
-            (l - mean).abs() <= 1.5,
+            (l - mean).abs() <= tolerance_db,
             "pink noise at {c:.0} Hz is {:.2} dB off",
             l - mean
         );
     }
+    worst
 }
 
 #[test]
@@ -230,6 +243,7 @@ fn impulse_is_broadband_and_finite() {
 fn every_layout_and_preset_builds_and_runs() {
     use av_protocol::config::{AnalysisConfig, FftPreset};
     for preset in [
+        FftPreset::Layered,
         FftPreset::LowLatency,
         FftPreset::Default,
         FftPreset::Precision,
@@ -283,11 +297,15 @@ fn auto_gain_lifts_quiet_material() {
 #[test]
 fn invalid_configs_are_rejected() {
     let mut plans = PlanCache::default();
-    let bad = SpectrumConfig {
-        fft_size: 2047,
-        ..SpectrumConfig::default()
-    };
+    let bad = SpectrumConfig::single(2048, 2047, 512);
     assert!(Analyzer::new(bad, plans.get(2047)).is_err());
+    let unpadded_too_small = SpectrumConfig::single(2048, 1024, 512);
+    assert!(Analyzer::new(unpadded_too_small, plans.get(1024)).is_err());
+    assert!(SpectrumConfig::layered(7, 1).validate().is_err());
+    assert!(
+        SpectrumConfig::layered(6, 8).validate().is_err(),
+        "above the FFT size limit"
+    );
     let mismatch = SpectrumConfig::default();
     assert!(Analyzer::new(mismatch, plans.get(1024)).is_err());
     let no_bars = SpectrumConfig {
