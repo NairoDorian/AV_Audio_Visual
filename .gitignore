@@ -1,0 +1,40 @@
+# Research library: local evidence only, never pushed (AGENTS.md section 7).
+/references/
+
+# Evidence bundles (spikes, releases, update reports).
+/evidence/
+
+# Rust
+/target/
+**/target/
+
+# Bun / Vite / TypeScript
+node_modules/
+/dist/
+*.tsbuildinfo
+.vite/
+
+# Tauri generated
+/src-tauri/gen/schemas/
+
+# Repomix output
+/repomix-output.*
+
+# Editors and OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Secrets and signing material
+.env
+.env.*
+*.pem
+*.p12
+*.pfx
+*.key
+
+# Logs
+*.log
