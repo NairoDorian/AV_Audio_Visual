@@ -97,11 +97,27 @@ export interface Ring {
   floor: number;
   gain: number;
   radius: number;
-  bars: boolean;
-  inner: boolean;
+  outerLine: boolean;
+  innerLine: boolean;
+  outerBars: boolean;
+  innerBars: boolean;
+  spanBars: boolean;
+  baseCircle: boolean;
+  barScale: number;
+  barSpacing: number;
 }
 
-/** `Scene` v1 (crates/av-protocol/src/scene.rs). */
+export interface ScopeStyle {
+  enabled: boolean;
+  gain: number;
+  size: number;
+  horizontalMirror: boolean;
+  verticalMirror: boolean;
+  copies: number;
+  lineWidth: number;
+}
+
+/** `Scene` v2 (crates/av-protocol/src/scene.rs). */
 export interface Scene {
   formatVersion: number;
   id: string;
@@ -114,6 +130,7 @@ export interface Scene {
   opacity: number;
   palette: string[];
   ring: Ring;
+  scope: ScopeStyle;
 }
 
 export type SourceRequest =

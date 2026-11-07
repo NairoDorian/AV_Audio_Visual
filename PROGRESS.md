@@ -11,7 +11,7 @@ What is implemented versus planned, kept truthful (AGENTS.md section 8). Steps r
 | A2 scripts and gates | Partial | `app-meta.ts` identity mirror, crate-graph check, `pre-commit.ts` (fast/full/routine), `.githooks/pre-commit`, repomix, CI on Windows/Linux/macOS | `precommit:full` green locally; CI green on all three OSes |
 | A2 updater | Not started | `update-deps.ts` / `update-policy.ts` / `update-all.ts` port from ZER0 + CursorFX (blueprint 8.1) | - |
 | A3 typed IPC | Not started | Commands are hand-typed in `src/lib/ipc.ts` until the `tauri-specta-v3` fork is rebased and pinned (ADR-014) | - |
-| A4 wire format | Done | `av-protocol` frame/wire v1, fixtures, `src/lib/frame/wire.ts` | 13 fixtures byte-identical in both directions |
+| A4 wire format | Done | `av-protocol` frame/wire v2 (waveform block; v1 still decodes), fixtures, `src/lib/frame/wire.ts` | 18 fixtures byte-identical in both directions |
 | A5 config | Done | `AppConfig` v2 (every FFT CHOP parameter, migration from v1), `Scene` v1, user analysis presets, migrate -> heal -> sanitize -> normalize, atomic debounced store with backups, ADR-007, ADR-021 | Pipeline, migration, preset and store tests; settings and parameter-table parity fixtures |
 | A6 DSP | Done | Analyzer: layered FFT in front of the FFT CHOP chain (6 windows, 7 scales, warp interpolation and aggregation, A/C/ITU-R 468, references, loudness, ballistics, spectral features) | Golden, layered and allocation gates; default p99 181 us parallel (`docs/performance.md`) |
 | A7 engine | Done | rtrb ring, symphonia file source, analysis worker, 64-slot seqlock ring, status snapshot, preview encoder | Bit-exact golden frames; no torn reads; zero allocations on the frame path |
@@ -25,8 +25,8 @@ What is implemented versus planned, kept truthful (AGENTS.md section 8). Steps r
 | :-- | :-- |
 | Layered FFT (1-6 layers, zero-padded, 1/2^(k-1) scaled, averaged) | Done: default 4 layers of 1,024-8,192, FFT 32,768, parallel from 3 layers; magnitudes only where read. Open: layer decimation, AVX2 kernels, MMCSS priority |
 | FFT CHOP integration (every parameter, ADR-021) | Done: all pages in the Studio, one built-in default, user presets saved as files. Not ported: FFTW planner/backend, ingest, worker wake (TouchDesigner-only) |
-| Concentric spectrum view (ZER0 circular scope) | First version in the Studio preview (`concentric` scene). Full component set (outer/inner lines, outer/inner/spanning bars, bar inset, high bar counts) planned: docs/super-fft.md 3 |
-| Raw audio scope (tapered one-frame trace, linear and inside the ring with mirrors and rotational copies) | Planned: docs/super-fft.md 4; needs wire v2 (section 5) |
+| Concentric spectrum view (ZER0 circular scope) | Done in the Studio preview: outer/inner lines, outer/inner/spanning bars, bar inset, base circle, up to 4,096 ring bins (scene format v2). Native wgpu version with A9 |
+| Raw audio scope (tapered one-frame trace, linear and inside the ring with mirrors and rotational copies) | Done in the Studio preview: wire v2 waveform block, half-sine taper in the engine, linear scope in bar scenes, ring traces with both mirrors and 1-8 rotational copies |
 
 ## Phase 0.5, Track B (platform spikes)
 

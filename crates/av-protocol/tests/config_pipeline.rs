@@ -323,3 +323,28 @@ fn colours_and_slugs() {
     assert_eq!(slugify("  Hello,  World ", "x"), "hello-world");
     assert_eq!(slugify("!!!", "fallback"), "fallback");
 }
+
+#[test]
+fn scene_v1_ring_booleans_migrate_to_components() {
+    use av_protocol::scene::Ring;
+    let ring = |bars: bool, inner: bool| -> Ring {
+        let text = format!(
+            r#"{{ "formatVersion": 1, "id": "x", "name": "X", "style": "concentric",
+                 "ring": {{ "bins": 120, "floor": 0.3, "gain": 1.5, "radius": 0.4,
+                            "bars": {bars}, "inner": {inner} }} }}"#
+        );
+        let l = load::<Scene>(&text);
+        assert_eq!(l.report.migrated_from, Some(1));
+        assert!(l.report.unknown.is_empty(), "{:?}", l.report.unknown);
+        assert_eq!(l.value.ring.bins, 120);
+        l.value.ring
+    };
+    let both = ring(true, true);
+    assert!(both.span_bars && !both.outer_bars && !both.outer_line && both.bar_scale == 1.0);
+    let out = ring(true, false);
+    assert!(out.outer_bars && !out.span_bars);
+    let loops = ring(false, true);
+    assert!(loops.outer_line && loops.inner_line && !loops.span_bars);
+    let outer_only = ring(false, false);
+    assert!(outer_only.outer_line && !outer_only.inner_line);
+}

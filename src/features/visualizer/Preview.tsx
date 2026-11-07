@@ -7,6 +7,7 @@ import type { DecodedFrame } from "../../lib/frame/wire";
 import { frameBus, type Scene } from "../../lib/ipc";
 import { drawRing, poolRing } from "../../lib/render/concentric";
 import { poolPeak } from "../../lib/render/pool";
+import { drawScope } from "../../lib/render/scope";
 
 const FALLBACK_PALETTE = ["#3d6bff", "#8a5cff", "#ff5ca8"];
 
@@ -26,6 +27,28 @@ export default function Preview(props: {
     let gradientKey = "";
     let pooled = new Float32Array(96);
     let pooledBars = new Float32Array(64);
+    // Reused every frame: the ring parameters with the display-count override.
+    const ringParams = { bins: 96, floor: 0, gain: 1 };
+    const ringStyle = {
+      outerLine: true,
+      innerLine: true,
+      outerBars: false,
+      innerBars: false,
+      spanBars: true,
+      baseCircle: true,
+      barScale: 1,
+      barSpacing: 1,
+      fill: "" as string | CanvasGradient,
+      base: "",
+    };
+    const scopeStyle = {
+      horizontalMirror: false,
+      verticalMirror: false,
+      copies: 1,
+      stroke: "",
+      lineWidth: 1,
+      clipRadius: undefined as number | undefined,
+    };
     let frame: DecodedFrame | null = null;
     let drawQueued = 0;
     let unsubscribe: (() => void) | null = null;
@@ -84,17 +107,35 @@ export default function Preview(props: {
       const fill = ensureGradient(scene);
       ctx.globalAlpha = scene?.opacity ?? 1;
       ctx.fillStyle = fill;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const scope = scene?.scope;
+      const wave = scope?.enabled ? frame.waveform : null;
+      const traceColor = scene?.palette.at(-1) ?? FALLBACK_PALETTE[2]!;
       if (scene?.style === "concentric") {
-        const ring = { ...scene.ring, bins: props.displayCount ?? scene.ring.bins };
-        if (pooled.length !== ring.bins) pooled = new Float32Array(ring.bins);
-        poolRing(frame.bars, ring, pooled);
+        const ring = scene.ring;
+        ringParams.bins = props.displayCount ?? ring.bins;
+        ringParams.floor = ring.floor;
+        ringParams.gain = ring.gain;
+        if (pooled.length !== ringParams.bins) pooled = new Float32Array(ringParams.bins);
+        poolRing(frame.bars, ringParams, pooled);
         const r = ring.radius * Math.min(el.width, el.height) * 0.5;
-        drawRing(ctx, pooled, el.width / 2, el.height / 2, r, {
-          bars: ring.bars,
-          inner: ring.inner,
-          fill,
-          base: scene.palette[0] ?? FALLBACK_PALETTE[0]!,
-        });
+        const cx = el.width / 2;
+        const cy = el.height / 2;
+        Object.assign(ringStyle, ring);
+        ringStyle.barSpacing = ring.barSpacing * dpr;
+        ringStyle.fill = fill;
+        ringStyle.base = scene.palette[0] ?? FALLBACK_PALETTE[0]!;
+        drawRing(ctx, pooled, cx, cy, r, ringStyle);
+        if (wave && scope) {
+          const half = r * scope.size;
+          scopeStyle.horizontalMirror = scope.horizontalMirror;
+          scopeStyle.verticalMirror = scope.verticalMirror;
+          scopeStyle.copies = scope.copies;
+          scopeStyle.stroke = traceColor;
+          scopeStyle.lineWidth = scope.lineWidth * dpr;
+          scopeStyle.clipRadius = r;
+          drawScope(ctx, wave, cx, cy, half, half * 0.5 * scope.gain, scopeStyle);
+        }
       } else {
         const n = Math.max(1, props.displayCount ?? scene?.barCount ?? 64);
         if (n >= frame.bars.length) {
@@ -102,6 +143,18 @@ export default function Preview(props: {
         } else {
           if (pooledBars.length !== n) pooledBars = new Float32Array(n);
           drawBars(poolPeak(frame.bars, pooledBars), scene);
+        }
+        if (wave && scope) {
+          // Linear scope (the taskbar strip's content): left to right, centred vertically.
+          const half = (el.width / 2) * scope.size;
+          scopeStyle.horizontalMirror = scope.horizontalMirror;
+          scopeStyle.verticalMirror = scope.verticalMirror;
+          scopeStyle.copies = 1;
+          scopeStyle.stroke = traceColor;
+          scopeStyle.lineWidth = scope.lineWidth * dpr;
+          scopeStyle.clipRadius = undefined;
+          const amp = (el.height / 2) * scope.gain;
+          drawScope(ctx, wave, el.width / 2, el.height / 2, half, amp, scopeStyle);
         }
       }
       ctx.globalAlpha = 1;

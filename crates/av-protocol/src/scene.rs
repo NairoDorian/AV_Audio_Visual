@@ -1,12 +1,16 @@
-//! `Scene` format v1: visual intent only. A scene never carries the audio device, monitor,
+//! `Scene` format v2: visual intent only. A scene never carries the audio device, monitor,
 //! paths, hotkeys or GPU (AGENTS.md invariant 20); those live in `AppConfig`. Share codes
 //! (Phase 3) wrap this same document with a version.
 
 use serde::{Deserialize, Serialize};
 
-use crate::pipeline::{Limit, Versioned, limit, slugify};
+use serde_json::{Map, Value};
 
-pub const FORMAT_VERSION: u32 = 1;
+use crate::pipeline::{Limit, Migration, Versioned, limit, slugify};
+
+/// v2 (2026-11-08): the ring's `bars`/`inner` booleans became the six components of
+/// docs/super-fft.md 3.2, and every scene gained the raw-audio `scope` block.
+pub const FORMAT_VERSION: u32 = 2;
 pub const MAX_PALETTE_COLORS: usize = 8;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,22 +25,36 @@ pub enum VisualStyle {
     Concentric,
 }
 
-/// Parameters of the concentric style. Present in every scene so switching style keeps them.
+/// Parameters of the concentric style (docs/super-fft.md section 3). Present in every scene so
+/// switching style keeps them. With perimeter radius `R` and the mirrored signal `C` in 0..1:
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Ring {
-    /// Display bins the bars are peak-pooled to; the ring has twice as many points.
+    /// Display bins the output bins are peak-pooled to; the ring has twice as many points.
     pub bins: u32,
     /// Values at or below the floor draw nothing (applied before the gain).
     pub floor: f32,
     /// Fixed display multiplier after the floor; never a dynamic normalization.
     pub gain: f32,
-    /// Ring radius as a fraction of the half-size of the view.
+    /// Perimeter radius as a fraction of the half-size of the view.
     pub radius: f32,
-    /// Radial bars (true) or two closed loops (false).
-    pub bars: bool,
-    /// Draw the inner branch.
-    pub inner: bool,
+    /// Closed line at `R (1 + C)`: the spectrum going outward.
+    pub outer_line: bool,
+    /// Closed line at `R (1 - C)`: the spectrum going inward.
+    pub inner_line: bool,
+    /// Radial bars from the perimeter out to the outer line.
+    pub outer_bars: bool,
+    /// Radial bars from the perimeter in to the inner line.
+    pub inner_bars: bool,
+    /// Radial bars from the inner line to the outer line, through the perimeter.
+    pub span_bars: bool,
+    /// The perimeter itself, faint.
+    pub base_circle: bool,
+    /// Bar length as a fraction of the line's distance from the perimeter: below 1 the lines
+    /// outline the bars with a small gap.
+    pub bar_scale: f32,
+    /// Gap between neighbouring bars, CSS pixels.
+    pub bar_spacing: f32,
 }
 
 impl Default for Ring {
@@ -46,8 +64,48 @@ impl Default for Ring {
             floor: 0.35,
             gain: 1.0,
             radius: 0.5,
-            bars: true,
-            inner: true,
+            outer_line: true,
+            inner_line: true,
+            outer_bars: false,
+            inner_bars: false,
+            span_bars: true,
+            base_circle: true,
+            bar_scale: 0.92,
+            bar_spacing: 1.5,
+        }
+    }
+}
+
+/// The raw-audio scope (docs/super-fft.md section 4): a linear trace in the bar styles, traces
+/// inside the ring in the concentric style.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopeStyle {
+    pub enabled: bool,
+    /// Amplitude multiplier (full scale reaches the trace's half-height at 1).
+    pub gain: f32,
+    /// Trace length as a fraction of the inner diameter (ring) or the width (linear).
+    pub size: f32,
+    /// Adds a time-reversed copy (right to left), superposed.
+    pub horizontal_mirror: bool,
+    /// Adds an amplitude-inverted copy of every trace.
+    pub vertical_mirror: bool,
+    /// Rotational copies inside the ring: copy `i` is rotated by `i * 180 / copies` degrees.
+    pub copies: u32,
+    /// CSS pixels.
+    pub line_width: f32,
+}
+
+impl Default for ScopeStyle {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            gain: 1.0,
+            size: 0.9,
+            horizontal_mirror: false,
+            vertical_mirror: false,
+            copies: 1,
+            line_width: 1.5,
         }
     }
 }
@@ -70,6 +128,7 @@ pub struct Scene {
     /// Gradient stops, bottom to top, `#rrggbb` or `#rrggbbaa`.
     pub palette: Vec<String>,
     pub ring: Ring,
+    pub scope: ScopeStyle,
 }
 
 impl Default for Scene {
@@ -85,6 +144,7 @@ impl Default for Scene {
             opacity: 1.0,
             palette: vec!["#3d6bff".into(), "#8a5cff".into(), "#ff5ca8".into()],
             ring: Ring::default(),
+            scope: ScopeStyle::default(),
         }
     }
 }
@@ -98,6 +158,10 @@ pub fn builtin_scenes() -> Vec<Scene> {
             name: "Concentric".into(),
             style: VisualStyle::Concentric,
             palette: vec!["#5ce1ff".into(), "#8a5cff".into(), "#ff5ca8".into()],
+            scope: ScopeStyle {
+                enabled: true,
+                ..ScopeStyle::default()
+            },
             ..Scene::default()
         },
     ]
@@ -120,7 +184,45 @@ pub static LIMITS: &[Limit<Scene>] = &[
     limit!(Scene, "ring.floor", 0, 0.9, float, ring.floor),
     limit!(Scene, "ring.gain", 0.05, 8, float, ring.gain),
     limit!(Scene, "ring.radius", 0.1, 0.5, float, ring.radius),
+    limit!(Scene, "ring.barScale", 0.5, 1, float, ring.bar_scale),
+    limit!(Scene, "ring.barSpacing", 0, 8, float, ring.bar_spacing),
+    limit!(Scene, "scope.gain", 0.1, 16, float, scope.gain),
+    limit!(Scene, "scope.size", 0.1, 1, float, scope.size),
+    limit!(Scene, "scope.copies", 1, 8, int, scope.copies),
+    limit!(Scene, "scope.lineWidth", 0.5, 8, float, scope.line_width),
 ];
+
+/// v1 -> v2: `bars` + `inner` meant spanning bars (both), outward bars (bars only), or the two
+/// loops (no bars: the outer line, plus the inner line when `inner`).
+pub fn migrate_v1(doc: &mut Map<String, Value>) {
+    let Some(Value::Object(ring)) = doc.get_mut("ring") else {
+        return;
+    };
+    let bars = ring
+        .remove("bars")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let inner = ring
+        .remove("inner")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let set = |ring: &mut Map<String, Value>, k: &str, v: bool| {
+        ring.insert(k.into(), Value::Bool(v));
+    };
+    set(ring, "spanBars", bars && inner);
+    set(ring, "outerBars", bars && !inner);
+    set(ring, "innerBars", false);
+    set(ring, "outerLine", !bars);
+    set(ring, "innerLine", !bars && inner);
+    set(ring, "baseCircle", true);
+    // v1 bars ran the full distance.
+    ring.insert("barScale".into(), Value::from(1.0));
+}
+
+static MIGRATIONS: &[Migration] = &[Migration {
+    from: 1,
+    apply: migrate_v1,
+}];
 
 /// `#rgb`, `#rrggbb` or `#rrggbbaa`, case-insensitive; returns the canonical lower-case
 /// `#rrggbb` / `#rrggbbaa` form.
@@ -143,6 +245,10 @@ pub fn normalize_color(input: &str) -> Option<String> {
 impl Versioned for Scene {
     const VERSION_KEY: &'static str = "formatVersion";
     const CURRENT: u32 = FORMAT_VERSION;
+
+    fn migrations() -> &'static [Migration] {
+        MIGRATIONS
+    }
 
     fn limits() -> &'static [Limit<Self>] {
         LIMITS

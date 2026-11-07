@@ -1,5 +1,5 @@
 {
-  "formatVersion": 1,
+  "formatVersion": 2,
   "id": "bars",
   "name": "Bars",
   "style": "bars",
@@ -17,7 +17,22 @@
     "floor": 0.35,
     "gain": 1.0,
     "radius": 0.5,
-    "bars": true,
-    "inner": true
+    "outerLine": true,
+    "innerLine": true,
+    "outerBars": false,
+    "innerBars": false,
+    "spanBars": true,
+    "baseCircle": true,
+    "barScale": 0.92,
+    "barSpacing": 1.5
+  },
+  "scope": {
+    "enabled": false,
+    "gain": 1.0,
+    "size": 0.9,
+    "horizontalMirror": false,
+    "verticalMirror": false,
+    "copies": 1,
+    "lineWidth": 1.5
   }
 }

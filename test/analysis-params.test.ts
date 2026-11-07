@@ -44,7 +44,7 @@ describe("analysis parameter table", () => {
   });
 
   test("numeric rows use the Rust hard range", () => {
-    for (const p of all.filter((p): p is NumberParam => p.kind === "number")) {
+    for (const p of all.filter((q): q is NumberParam => q.kind === "number")) {
       const row = limits.get(`analysis.${p.key}`);
       expect(row, p.key).toBeDefined();
       expect([p.min, p.max], p.key).toEqual([row!.min, row!.max]);

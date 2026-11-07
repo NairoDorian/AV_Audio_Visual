@@ -163,14 +163,15 @@ feature in `av-dsp`:
 
 | CHOP feature | Study reference | `av-dsp` |
 | :-- | :-- | :-- |
-| Window length separate from FFT size; zero-padding | 3, 5 | Layered analysis (this plan) |
-| Hann / Kaiser(beta) / Blackman-Harris windows, coherent-gain normalization | 5 | Hann, Blackman-Harris done; Kaiser with this plan |
-| Unnormalized forward FFT, explicit calibration | 5 | Done (`2 / sum(w)` power scale) |
-| Warps: Log, Mel, ERB, Bark, Chroma, Melog; identity bypass; linear and cubic interpolation | 5 | Log/Linear/Mel done as band layouts; ERB, Bark, Melog, Chroma (12 pitch classes) next; cubic interpolation for narrow bars next |
-| Weighting: A, C, ITU-R 468 | 5 | A/C/Z done; ITU-R 468 next |
-| Pre-analysis EQ (low/high shelf, Q, wet/dry) | 4 | Planned (biquad DF2T, recomputed on change) |
-| Output modes: linear, dB, dB-normalized; dB reference; floor | 4 | dB-normalized done; linear and dB reference next |
-| Aggregation: peak vs average per band | 5 | Average-PSD done; peak aggregation next |
+| Window length separate from FFT size (samples or ms); zero-padding on/off | 3, 5 | Done, with layers in front (ADR-020, ADR-021) |
+| Kaiser (manual or auto beta), Hann, Hamming, Blackman, Blackman-Harris, Rectangular; coherent-gain or full-scale normalization | 5 | Done |
+| Unnormalized forward FFT, explicit calibration | 5 | Done (`2 / sum(w)` per layer) |
+| Warps: Log, Mel, ERB, Bark, Chroma, Linear, Melog; warp blend; identity bypass; linear and cubic interpolation; output bins fixed/auto | 5 | Done (`av-dsp/src/warp.rs`) |
+| Weighting: A, C, ITU-R 468 | 5 | Done (per output bin) |
+| Pre-analysis EQ (low/high shelf, Q, wet/dry to 5) | 4 | Done |
+| Loudness: dB over a range or linear; reference frame peak, dBFS or AGC | 4 | Done (frames carry 0..1 display values) |
+| Aggregation: off, peak, RMS over the FFT bins an output bin owns | 5 | Done |
+| Spectral features (centroid, rolloff, flatness, flux, RMS, band powers) | 4 | Done (status, not wire) |
 | Ballistics in ms at the real frame interval; reset | 5 | Done (time-based, `dt` clamped) |
 | Key-cached rebuilds | 9 | Done: settings build a new analyzer off the hot path, swapped by generation |
 | Off-thread plan building | 6 | Done (`PlanCache` on the caller's thread) |
@@ -235,7 +236,9 @@ With base radius `R` (the ring's perimeter) and the signal `C` in 0..1:
 `bins` (display count `n`), `floor`, `gain`, `radius`, and the component toggles
 `outerLine`, `innerLine`, `outerBars`, `innerBars`, `spanBars`, `baseCircle`, plus
 `barScale` (0.5-1.0) and `barSpacing`. The current `bars`/`inner` booleans migrate to these
-(scene format v2, with a migration test).
+(scene format v2, with a migration test). Done 2026-11-08: `Scene` format v2, painter
+`src/lib/render/concentric.ts`; until user scene files exist the Studio's Look panel edits
+the preview's copy only.
 
 ---
 
@@ -252,9 +255,11 @@ natural content for the taskbar strip (a linear scope).
    -> 0), so the trace fades in and out at both ends instead of jumping.
 3. **Gain.** A display gain (fixed, optionally auto) scales the amplitude.
 
-The engine keeps the newest raw mono samples with every frame (wire v2 waveform block, up to
-4,096 samples); the consumer takes the newest `L` for its own frame rate and applies the taper,
-so a 60 Hz and a 144 Hz surface each get exactly one frame of audio.
+Implemented (2026-11-08): the engine keeps the newest raw mono samples (before the DC blocker
+and EQ) and sends the newest `analysis.waveformSamples` (default 800, 0 = off, up to 4,096)
+already tapered with every frame (wire v2 waveform block). A surface at another frame rate sets
+the length to its own frame of audio. Scene `scope`: enabled, gain, size, the two mirrors,
+rotational copies (1-8) and line width; painter `src/lib/render/scope.ts`.
 
 ### 4.2 Linear scope
 
@@ -300,9 +305,10 @@ reads the slot ring in place as before.
 3. `AppConfig`: `layers`, FFT size, layered default; Studio controls. Done; superseded by
    step 8's schema v2 (ADR-021).
 4. Studio preview: `concentric` built-in scene (outer/inner lines or spanning bars). Done.
-5. Wire v2 + slot ring blocks: waveform and display spectrum (section 5), with parity fixtures.
-6. Concentric components and bar inset (section 3.2), scene format v2 with migration.
-7. Raw audio scope: taper, linear scope, ring traces with the three controls (section 4).
+5. Wire v2 + slot ring waveform block, with parity fixtures. Done (the display spectrum is the
+   output bins of step 8, so no second spectrum block is needed).
+6. Concentric components and bar inset (section 3.2), scene format v2 with migration. Done.
+7. Raw audio scope: taper, linear scope, ring traces with the three controls (section 4). Done.
 8. CHOP features: every parameter (7 scales, 6 windows, cubic warp, peak/RMS aggregation,
    A/C/ITU-R 468, references, loudness and ballistics modes, spectral features, output bins up
    to 65,537), config schema v2 with migration, user presets. Done (ADR-021).

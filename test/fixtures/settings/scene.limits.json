@@ -54,5 +54,47 @@
     "max": 0.5,
     "min": 0.1,
     "path": "ring.radius"
+  },
+  {
+    "default": 0.9200000166893005,
+    "integer": false,
+    "max": 1.0,
+    "min": 0.5,
+    "path": "ring.barScale"
+  },
+  {
+    "default": 1.5,
+    "integer": false,
+    "max": 8.0,
+    "min": 0.0,
+    "path": "ring.barSpacing"
+  },
+  {
+    "default": 1.0,
+    "integer": false,
+    "max": 16.0,
+    "min": 0.1,
+    "path": "scope.gain"
+  },
+  {
+    "default": 0.8999999761581421,
+    "integer": false,
+    "max": 1.0,
+    "min": 0.1,
+    "path": "scope.size"
+  },
+  {
+    "default": 1.0,
+    "integer": true,
+    "max": 8.0,
+    "min": 1.0,
+    "path": "scope.copies"
+  },
+  {
+    "default": 1.5,
+    "integer": false,
+    "max": 8.0,
+    "min": 0.5,
+    "path": "scope.lineWidth"
   }
 ]

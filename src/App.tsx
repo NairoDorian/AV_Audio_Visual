@@ -1,6 +1,7 @@
 import { createSignal, For, Show, Match, Switch, onSettled } from "solid-js";
 import Preview from "./features/visualizer/Preview";
 import AnalysisPanel from "./features/analysis/AnalysisPanel";
+import LookPanel from "./features/visualizer/LookPanel";
 import {
   getAppInfo,
   getAudioStatus,
@@ -200,6 +201,14 @@ export default function App() {
                       scene editing arrives with scene files).
                     </p>
                   </section>
+                  <Show when={scene()}>
+                    {(s) => (
+                      <LookPanel
+                        scene={s()}
+                        onUpdate={(update) => setScene((prev) => (prev ? update(prev) : prev))}
+                      />
+                    )}
+                  </Show>
                   <AnalysisPanel
                     analysis={c().analysis}
                     sampleRate={status()?.source?.sampleRate ?? 48_000}

@@ -276,3 +276,9 @@ button.primary {
     grid-column: auto;
   }
 }
+
+.toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}

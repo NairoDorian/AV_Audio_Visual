@@ -49,6 +49,43 @@ export function ringAngle(k: number, points: number): number {
   return ((k + 0.5) / points) * Math.PI * 2;
 }
 
+/** The component toggles of `Scene.ring` (docs/super-fft.md 3.2). */
+export interface RingComponents {
+  outerLine: boolean;
+  innerLine: boolean;
+  outerBars: boolean;
+  innerBars: boolean;
+  spanBars: boolean;
+  baseCircle: boolean;
+  /** Bar length as a fraction of the line distance (below 1 the lines outline the bars). */
+  barScale: number;
+  /** Gap between bars, in canvas pixels. */
+  barSpacing: number;
+}
+
+/**
+ * Radial spans of the bars at one point, in units of the perimeter radius: outer bars run
+ * from 1 out to `1 + c * scale`, inner bars from 1 in to `1 - c * scale`, spanning bars from
+ * `1 - c * scale` to `1 + c * scale`. Writes into `out` (pairs) and returns the pair count.
+ */
+export function barSpans(c: number, s: RingComponents, out: Float64Array): number {
+  const d = c * s.barScale;
+  let n = 0;
+  const push = (a: number, b: number) => {
+    out[2 * n] = a;
+    out[2 * n + 1] = b;
+    n++;
+  };
+  if (s.spanBars) push(1 - d, 1 + d);
+  else {
+    if (s.outerBars) push(1, 1 + d);
+    if (s.innerBars) push(1 - d, 1);
+  }
+  return n;
+}
+
+const spans = new Float64Array(4);
+
 /** Draws the ring into a 2D context. `pooled` comes from `poolRing`. */
 export function drawRing(
   ctx: CanvasRenderingContext2D,
@@ -56,35 +93,40 @@ export function drawRing(
   cx: number,
   cy: number,
   radius: number,
-  style: { bars: boolean; inner: boolean; fill: string | CanvasGradient; base: string },
+  style: RingComponents & { fill: string | CanvasGradient; base: string },
 ): void {
   const points = ringPoints(pooled.length);
-  ctx.globalAlpha = 0.3;
-  ctx.strokeStyle = style.base;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  ctx.stroke();
+  if (style.baseCircle) {
+    ctx.globalAlpha = 0.3;
+    ctx.strokeStyle = style.base;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.stroke();
+  }
   ctx.globalAlpha = 1;
   ctx.strokeStyle = style.fill;
-  if (style.bars) {
-    ctx.lineCap = "round";
-    ctx.lineWidth = Math.max(1, (2 * Math.PI * radius) / points - 1.5);
+  if (style.outerBars || style.innerBars || style.spanBars) {
+    ctx.lineCap = "butt";
+    ctx.lineWidth = Math.max(1, (2 * Math.PI * radius) / points - style.barSpacing);
     for (let k = 0; k < points; k++) {
       const c = ringSignal(k, pooled);
       if (c <= 0) continue;
       const th = ringAngle(k, points);
       const co = Math.cos(th);
       const si = Math.sin(th);
-      const inner = style.inner ? 1 - c : 1;
       ctx.globalAlpha = 0.35 + 0.65 * c;
       ctx.beginPath();
-      ctx.moveTo(cx + co * radius * inner, cy + si * radius * inner);
-      ctx.lineTo(cx + co * radius * (1 + c), cy + si * radius * (1 + c));
+      const n = barSpans(c, style, spans);
+      for (let i = 0; i < n; i++) {
+        const a = radius * spans[2 * i]!;
+        const b = radius * spans[2 * i + 1]!;
+        ctx.moveTo(cx + co * a, cy + si * a);
+        ctx.lineTo(cx + co * b, cy + si * b);
+      }
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
-    return;
   }
   const loop = (sign: number) => {
     ctx.beginPath();
@@ -101,10 +143,10 @@ export function drawRing(
   };
   ctx.lineWidth = 1.5;
   ctx.lineJoin = "round";
-  if (style.inner) {
-    ctx.globalAlpha = 0.55;
+  if (style.innerLine) {
+    ctx.globalAlpha = 0.75;
     loop(-1);
     ctx.globalAlpha = 1;
   }
-  loop(1);
+  if (style.outerLine) loop(1);
 }
