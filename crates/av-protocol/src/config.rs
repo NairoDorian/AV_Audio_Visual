@@ -1,8 +1,11 @@
-//! `AppConfig` schema v2: domain settings (source, analysis, performance, placements). Ephemeral
+//! `AppConfig` schema v3: domain settings (source, analysis, performance, placements). Ephemeral
 //! UI state (hovered bin, panel width) never lives here (README section 4.8).
 //!
 //! Every numeric field has a row in `LIMITS` (clamp + parity fixture). Adding a field means:
 //! a default, a limit row if numeric, and a migration if an old field moves.
+//!
+//! Schema v3 (2026-11-08) follows FFT CHOP v2.13's Multi-FFT controls: `layerRefresh` and
+//! `layerThreads` (which replaces `parallelLayers`, [`migrate_v2`]).
 //!
 //! Schema v2 (2026-11-07) replaced the fixed FFT presets with every parameter of the FFT CHOP
 //! (Spectrum, EQ, Window & Weighting, Loudness & Ballistics, Performance pages), each visible and
@@ -15,7 +18,7 @@ use serde_json::{Map, Value};
 use crate::pipeline::{Limit, Migration, Versioned, limit, slugify};
 use crate::placement::{Anchor, InputMode};
 
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// Largest analysis FFT (zero-padded transform length).
 pub const MAX_FFT_SIZE: u32 = 131_072;
@@ -247,15 +250,16 @@ pub enum BallisticsMode {
     Milliseconds,
 }
 
-/// Whether layers run one per core.
+/// How often the long layers are recomputed (FFT CHOP v2.13 "Multi-FFT Long-Layer Refresh").
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum ParallelLayers {
-    /// From 3 layers up (measured break-even, docs/performance.md).
+pub enum LayerRefresh {
+    /// Every layer on every hop (exact).
     #[default]
-    Auto,
-    Always,
-    Never,
+    EveryFrame,
+    /// Layer 4 every 2nd hop, layer 5 every 4th, layer 6 every 8th (phase-offset); their previous
+    /// magnitude is reused in between. Long windows change slowly, so this costs little detail.
+    HopScaled,
 }
 
 /// The analysis settings: every FFT CHOP parameter that applies to a visualizer.
@@ -317,10 +321,14 @@ pub struct AnalysisConfig {
     // --- Performance ---
     /// Centroid, rolloff, flatness, flux, RMS and band powers in the status.
     pub spectral_features: bool,
+    pub layer_refresh: LayerRefresh,
+    /// Threads the layers are spread over, the analysis thread included: 0 = auto (one per layer
+    /// from 3 layers up), 1 = all on the analysis thread, n = n threads. Results are identical at
+    /// any count.
+    pub layer_threads: u32,
     /// Raw audio scope: the newest samples, half-sine tapered, sent with every frame (0 = off;
     /// 800 is one 60 fps frame at 48 kHz). docs/super-fft.md section 4.
     pub waveform_samples: u32,
-    pub parallel_layers: ParallelLayers,
 }
 
 /// Shelf EQ applied to new samples before the window. Product default: high shelf +24 dB at
@@ -396,7 +404,8 @@ impl Default for AnalysisConfig {
             release_ms: 250.0,
             spectral_features: false,
             waveform_samples: 800,
-            parallel_layers: ParallelLayers::Auto,
+            layer_refresh: LayerRefresh::EveryFrame,
+            layer_threads: 0,
         }
     }
 }
@@ -478,12 +487,13 @@ macro_rules! analysis_limits {
             limit!($ty, "analysis.attackMs", 0, 2_000, float, $($root)+.attack_ms),
             limit!($ty, "analysis.releaseMs", 0, 5_000, float, $($root)+.release_ms),
             limit!($ty, "analysis.waveformSamples", 0, $crate::frame::MAX_WAVEFORM, int, $($root)+.waveform_samples),
+            limit!($ty, "analysis.layerThreads", 0, $crate::config::MAX_LAYERS, int, $($root)+.layer_threads),
         ]
     };
 }
 pub(crate) use analysis_limits;
 
-static ANALYSIS_LIMITS: [Limit<AppConfig>; 23] = analysis_limits!(AppConfig, analysis);
+static ANALYSIS_LIMITS: [Limit<AppConfig>; 24] = analysis_limits!(AppConfig, analysis);
 
 static OTHER_LIMITS: [Limit<AppConfig>; 7] = [
     limit!(
@@ -629,10 +639,30 @@ pub fn migrate_v1(doc: &mut Map<String, Value>) {
     a.remove("zeroPad");
 }
 
-static MIGRATIONS: &[Migration] = &[Migration {
-    from: 1,
-    apply: migrate_v1,
-}];
+/// v2 -> v3: `parallelLayers` (auto / always / never) becomes `layerThreads` (0 = auto, one
+/// thread per layer for "always", 1 for "never").
+pub fn migrate_v2(doc: &mut Map<String, Value>) {
+    let Some(Value::Object(a)) = doc.get_mut("analysis") else {
+        return;
+    };
+    let threads = match a.remove("parallelLayers").as_ref().and_then(Value::as_str) {
+        Some("never") => 1,
+        Some("always") => MAX_LAYERS,
+        _ => 0,
+    };
+    a.insert("layerThreads".into(), threads.into());
+}
+
+static MIGRATIONS: &[Migration] = &[
+    Migration {
+        from: 1,
+        apply: migrate_v1,
+    },
+    Migration {
+        from: 2,
+        apply: migrate_v2,
+    },
+];
 
 impl Versioned for AppConfig {
     const VERSION_KEY: &'static str = "schemaVersion";

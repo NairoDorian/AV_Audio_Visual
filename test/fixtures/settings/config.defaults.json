@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "audio": {
     "source": "systemOutput",
     "deviceId": null,
@@ -50,8 +50,9 @@
     "attackMs": 15.0,
     "releaseMs": 250.0,
     "spectralFeatures": false,
-    "waveformSamples": 800,
-    "parallelLayers": "auto"
+    "layerRefresh": "everyFrame",
+    "layerThreads": 0,
+    "waveformSamples": 800
   },
   "performance": {
     "fpsCap": 60,

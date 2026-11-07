@@ -350,3 +350,69 @@ fn invalid_configs_are_rejected() {
     let c = SpectrumConfig::default();
     assert!(Analyzer::new(c, plans.get(1024)).is_err(), "plan mismatch");
 }
+
+/// A setting change keeps the audio context (FFT CHOP v2.13: "a window change keeps the
+/// history"): the new analyzer's first frame shows the running tone at full level instead of
+/// restarting from silence.
+#[test]
+fn a_new_analyzer_adopts_the_history_and_envelope() {
+    let mut old = analyzer(cfg(|s| {
+        s.ballistics = true;
+        s.release_ms = 2000.0;
+    }));
+    let hop = old.config().hop_samples;
+    let (before, _) = run(&mut old, 0.5, sine(1000.0, 0.5));
+    let mut fresh = analyzer(cfg(|s| {
+        s.ballistics = true;
+        s.release_ms = 2000.0;
+        s.warp_interp = WarpInterp::Cubic;
+    }));
+    let mut adopted = analyzer(cfg(|s| {
+        s.ballistics = true;
+        s.release_ms = 2000.0;
+        s.warp_interp = WarpInterp::Cubic;
+    }));
+    adopted.adopt(&old);
+    let silence = vec![0.0f32; hop];
+    let i = peak(&before).0;
+    let cold = fresh.process(&silence, 0.01).bars[i];
+    let warm = adopted.process(&silence, 0.01).bars[i];
+    assert!(cold < 0.05, "a fresh analyzer starts from nothing: {cold}");
+    assert!(
+        warm > before[i] - 0.1,
+        "adopted {warm} vs before {}",
+        before[i]
+    );
+}
+
+/// Reset (FFT CHOP F11) clears the envelope: a slow release no longer holds the old level.
+#[test]
+fn reset_clears_the_ballistics_and_agc() {
+    let mut a = analyzer(cfg(|s| {
+        s.ballistics = true;
+        s.release_ms = 5000.0;
+        s.layers = 1;
+    }));
+    let (loud, _) = run(&mut a, 0.5, sine(1000.0, 0.5));
+    let i = peak(&loud).0;
+    let (held, _) = run(&mut a, 0.05, |_| 0.0);
+    assert!(held[i] > 0.5, "a 5 s release still holds: {}", held[i]);
+    a.reset_state();
+    let (after, _) = run(&mut a, 0.02, |_| 0.0);
+    assert!(after[i] < 0.01, "after reset: {}", after[i]);
+}
+
+/// A NaN or infinity from a device never poisons the filters: the frame stays finite and the
+/// next clean audio reads normally.
+#[test]
+fn non_finite_input_is_dropped() {
+    let mut a = analyzer(cfg(|s| s.eq.enabled = true));
+    let hop = a.config().hop_samples;
+    let mut bad = vec![0.1f32; hop];
+    bad[7] = f32::NAN;
+    bad[9] = f32::INFINITY;
+    let f = a.process(&bad, 0.01);
+    assert!(f.bars.iter().all(|v| v.is_finite()));
+    let (bars, _) = run(&mut a, 0.5, sine(1000.0, 0.5));
+    assert!(peak(&bars).1 > 0.5);
+}

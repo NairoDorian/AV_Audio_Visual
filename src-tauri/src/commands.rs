@@ -107,6 +107,12 @@ pub fn list_scenes() -> Vec<Scene> {
     av_protocol::scene::builtin_scenes()
 }
 
+/// The FFT CHOP's Reset: clears the filter, ballistics, AGC and feature state.
+#[tauri::command]
+pub fn reset_analysis(audio: tauri::State<'_, Arc<AudioService>>) {
+    audio.reset();
+}
+
 /// The built-in default and every user preset.
 #[tauri::command]
 pub fn list_presets(presets: tauri::State<'_, Arc<PresetStore>>) -> Vec<PresetInfo> {

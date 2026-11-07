@@ -63,7 +63,9 @@ export interface AnalysisConfig {
   spectralFeatures: boolean;
   /** Raw audio scope samples per frame, half-sine tapered (0 = off). */
   waveformSamples: number;
-  parallelLayers: "auto" | "always" | "never";
+  layerRefresh: "everyFrame" | "hopScaled";
+  /** Threads the layers run on, the analysis thread included (0 = auto). */
+  layerThreads: number;
 }
 
 export interface PresetInfo {
@@ -154,7 +156,8 @@ export interface AudioStatus {
   outputBins: number;
   layers: number;
   windowSamples: number;
-  parallel: boolean;
+  /** Threads the layers run on (1 = the analysis thread only). */
+  threads: number;
   peakHz: number;
   features: SpectralFeatures | null;
   generation: number;
@@ -201,6 +204,8 @@ export const listPresets = () => invoke<PresetInfo[]>("list_presets");
 export const savePreset = (name: string) => invoke<PresetInfo>("save_preset", { name });
 export const applyPreset = (id: string) => invoke<Applied>("apply_preset", { id });
 export const deletePreset = (id: string) => invoke<void>("delete_preset", { id });
+/** The FFT CHOP's Reset: clears filter, ballistics, AGC and feature state. */
+export const resetAnalysis = () => invoke<void>("reset_analysis");
 
 /** The Studio's single frame bus (one poller per window). */
 export const frameBus = new FrameBus({

@@ -64,11 +64,14 @@ fn db(p: f64) -> f32 {
 }
 
 /// Features of `mag` (bin `k` at `k * bin_hz`). `time` holds the newest window in pieces.
-/// `prev` is the previous hop's magnitude (same length, preallocated) and is overwritten.
+/// `gain` rescales `mag` for the band powers only (a layer that carries `1/L` of the average
+/// passes `L`); every other feature is scale-free. `prev` is the previous hop's magnitude (same
+/// length, preallocated) and is overwritten.
 pub fn compute(
     mag: &[f32],
     bin_hz: f64,
     time: [&[f32]; 2],
+    gain: f32,
     prev: &mut [f32],
     have_prev: bool,
 ) -> SpectralFeatures {
@@ -109,9 +112,10 @@ pub fn compute(
         let geo = 10f64.powf((log_sum / n as f64) / 10.0);
         f.flatness = (geo / (total / n as f64)).clamp(0.0, 1.0) as f32;
     }
-    f.bass_db = db(bands[0]);
-    f.mid_db = db(bands[1]);
-    f.high_db = db(bands[2]);
+    let g2 = gain as f64 * gain as f64;
+    f.bass_db = db(bands[0] * g2);
+    f.mid_db = db(bands[1] * g2);
+    f.high_db = db(bands[2] * g2);
     f.flux = if have_prev && sum_mag > 0.0 {
         (rise / sum_mag) as f32
     } else {
@@ -145,14 +149,18 @@ mod tests {
         mag[100] = 1.0;
         let mut prev = vec![0.0; 1025];
         let x = [0.5f32; 64];
-        let f = compute(&mag, 10.0, [&x, &[]], &mut prev, false);
+        let f = compute(&mag, 10.0, [&x, &[]], 1.0, &mut prev, false);
         assert!((f.centroid_hz - 1000.0).abs() < 1e-3);
         assert!((f.rolloff_hz - 1000.0).abs() < 1e-3);
         assert!(f.flatness < 1e-6);
         assert!((f.rms_db - -6.0206).abs() < 1e-3);
         assert!(f.mid_db > -1.0 && f.bass_db == -120.0);
         // Same frame again: no flux.
-        let g = compute(&mag, 10.0, [&x, &[]], &mut prev, true);
+        let g = compute(&mag, 10.0, [&x, &[]], 1.0, &mut prev, true);
+        // A layer carrying 1/4 of the average reads the same band power with gain 4.
+        let quarter: Vec<f32> = mag.iter().map(|v| v / 4.0).collect();
+        let h = compute(&quarter, 10.0, [&x, &[]], 4.0, &mut prev, false);
+        assert!((h.mid_db - f.mid_db).abs() < 1e-4);
         assert_eq!(g.flux, 0.0);
     }
 
@@ -160,7 +168,7 @@ mod tests {
     fn white_spectrum_is_flat() {
         let mag = vec![0.3f32; 513];
         let mut prev = vec![0.0; 513];
-        let f = compute(&mag, 46.875, [&[], &[]], &mut prev, false);
+        let f = compute(&mag, 46.875, [&[], &[]], 1.0, &mut prev, false);
         assert!((f.flatness - 1.0).abs() < 1e-4, "{}", f.flatness);
     }
 }

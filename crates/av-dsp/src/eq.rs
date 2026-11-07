@@ -82,6 +82,10 @@ impl Section {
         let a0 = (a + 1.0) - s * (a - 1.0) * cos_w0 + 2.0 * sqrt_a * alpha;
         let a1 = s * 2.0 * ((a - 1.0) - s * (a + 1.0) * cos_w0);
         let a2 = (a + 1.0) - s * (a - 1.0) * cos_w0 - 2.0 * sqrt_a * alpha;
+        // FFT CHOP v2.13 (audit F10): a design that is not finite switches the shelf off.
+        if ![b0, b1, b2, a0, a1, a2].iter().all(|v| v.is_finite()) || a0 == 0.0 {
+            return Self::default();
+        }
         Self {
             b0: (b0 / a0) as f32,
             b1: (b1 / a0) as f32,

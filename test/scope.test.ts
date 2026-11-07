@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import { barSpans, type RingComponents } from "../src/lib/render/concentric";
 import { scopeAngle, scopeVariants, traceCount } from "../src/lib/render/scope";
 
+const deg = (i: number, k: number) => (scopeAngle(i, k) * 180) / Math.PI;
+
 describe("scope traces", () => {
   test("each toggle doubles the traces and copies multiply them", () => {
     const o = { horizontalMirror: false, verticalMirror: false, copies: 1 };
@@ -23,7 +25,6 @@ describe("scope traces", () => {
   });
 
   test("copy i is rotated by i * 180 / copies degrees", () => {
-    const deg = (i: number, k: number) => (scopeAngle(i, k) * 180) / Math.PI;
     expect(deg(1, 2)).toBeCloseTo(90, 9);
     expect([0, 1, 2].map((i) => deg(i, 3))).toEqual([0, 60, 120].map((x) => expect.closeTo(x, 9)));
   });

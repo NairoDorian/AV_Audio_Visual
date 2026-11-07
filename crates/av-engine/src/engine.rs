@@ -18,7 +18,6 @@ use std::time::{Duration, Instant};
 use arc_swap::ArcSwap;
 use av_audio::{AudioSource, CaptureFormat};
 use av_dsp::{Analyzer, DspError, PlanCache, SpectrumConfig};
-use av_protocol::config::ParallelLayers;
 
 use crate::pipeline::Pipeline;
 use crate::slot_ring::{FrameReader, slot_ring};
@@ -54,6 +53,8 @@ impl From<DspError> for EngineError {
 
 enum Control {
     Swap(Box<Analyzer>, u32),
+    /// The FFT CHOP's Reset, acted on at the next hop boundary (audit F11).
+    Reset,
 }
 
 /// A running analysis worker for one source.
@@ -141,6 +142,11 @@ impl Engine {
         Ok(generation)
     }
 
+    /// Clears the filter, ballistics, AGC and feature state at the next hop boundary.
+    pub fn reset(&self) {
+        let _ = self.control.send(Control::Reset);
+    }
+
     pub fn stop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
         if let Some(t) = self.thread.take() {
@@ -163,27 +169,31 @@ fn build(
     format: CaptureFormat,
 ) -> Result<Analyzer, DspError> {
     let cfg = cfg.at_rate(format.sample_rate);
-    let mode = cfg.settings.parallel_layers;
+    let threads = cfg.settings.layer_threads as usize;
     let plan = plans.get(cfg.fft_size);
-    Analyzer::with_runner(cfg, plan, move |units| layer_runner(units, mode))
+    Analyzer::with_runner(cfg, plan, move |units| layer_runner(units, threads))
 }
 
-/// In `Auto`, layers from this count up run one per core: measured 1.85x faster at the default
-/// (4 layers, N = 32,768) and 2.5x at 6 layers; with 2 layers the hand-off costs what it saves
-/// (`examples/layer_timing.rs`, docs/performance.md).
+/// With `layerThreads` = 0 (auto), layers from this count up run one per thread: measured 1.85x
+/// faster at the default (4 layers, N = 32,768) and 2.5x at 6 layers; with 2 layers the hand-off
+/// costs what it saves (`examples/layer_timing.rs`, docs/performance.md).
 pub const PARALLEL_FROM_LAYERS: usize = 3;
 
-fn layer_runner(
-    units: Vec<av_dsp::LayerUnit>,
-    mode: ParallelLayers,
-) -> Box<dyn av_dsp::LayerRunner> {
-    let parallel = match mode {
-        ParallelLayers::Auto => units.len() >= PARALLEL_FROM_LAYERS,
-        ParallelLayers::Always => units.len() > 1,
-        ParallelLayers::Never => false,
-    };
-    if parallel {
-        return Box::new(crate::parallel::ParallelLayers::new(units));
+/// Threads used for `layers` layers and the `layerThreads` setting (0 = auto).
+pub fn layer_threads(layers: usize, setting: usize) -> usize {
+    match setting {
+        0 if layers >= PARALLEL_FROM_LAYERS => layers,
+        0 => 1,
+        n => n.min(layers).max(1),
+    }
+}
+
+fn layer_runner(units: Vec<av_dsp::LayerUnit>, setting: usize) -> Box<dyn av_dsp::LayerRunner> {
+    let threads = layer_threads(units.len(), setting);
+    if threads > 1 {
+        return Box::new(crate::parallel::ParallelLayers::with_threads(
+            units, threads,
+        ));
     }
     Box::new(av_dsp::SequentialLayers::new(units))
 }
@@ -211,8 +221,13 @@ impl Worker {
         let mut silent = false;
 
         while !self.stop.load(Ordering::Relaxed) {
-            while let Ok(Control::Swap(analyzer, generation)) = self.rx.try_recv() {
-                drop(self.pipeline.swap(*analyzer, generation));
+            while let Ok(control) = self.rx.try_recv() {
+                match control {
+                    Control::Swap(analyzer, generation) => {
+                        drop(self.pipeline.swap(*analyzer, generation));
+                    }
+                    Control::Reset => self.pipeline.reset(),
+                }
             }
 
             let dropped = counters.dropped_samples.load(Ordering::Relaxed);
@@ -266,7 +281,7 @@ impl Worker {
             bar_count: cfg.output_bins() as u32,
             layers: cfg.layers as u32,
             window_samples: cfg.window_samples as u32,
-            parallel: self.pipeline.analyzer().parallel(),
+            threads: self.pipeline.analyzer().threads() as u32,
             peak_hz: stats.peak_hz,
             features: stats.features,
             generation: self.pipeline.generation(),

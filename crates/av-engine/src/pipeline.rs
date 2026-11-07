@@ -77,7 +77,9 @@ impl Pipeline {
     /// stream is untouched; a partially filled hop is dropped. Returns the old analyzer so the
     /// caller decides where it is freed. The hop buffer is reallocated only when the hop size
     /// changes, which is a configuration change, not steady state.
-    pub fn swap(&mut self, analyzer: Analyzer, generation: u32) -> Analyzer {
+    pub fn swap(&mut self, mut analyzer: Analyzer, generation: u32) -> Analyzer {
+        // Keep the audio context: no restart from silence, no dip in the display.
+        analyzer.adopt(&self.analyzer);
         let hop = analyzer.config().hop_samples;
         if hop != self.hop.len() {
             self.hop = vec![0.0; hop];
@@ -89,6 +91,11 @@ impl Pipeline {
             self.scope = Scope::new(scope);
         }
         std::mem::replace(&mut self.analyzer, analyzer)
+    }
+
+    /// The FFT CHOP's Reset: filter, ballistics, AGC and feature state; the audio is kept.
+    pub fn reset(&mut self) {
+        self.analyzer.reset_state();
     }
 
     /// Frames were lost upstream (ring overrun): keep the clock honest and restart the window.

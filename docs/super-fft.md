@@ -186,6 +186,29 @@ feature in `av-dsp`:
 Dropped on purpose: FFTW wisdom, the FFTW/oneMKL runtime backend table, TouchDesigner glue and
 the generated parameter layout (study section 9).
 
+### 2.1 Audit against FFT CHOP v2.13.0 (2026-11-08)
+
+The CHOP's v2.13.0 (commit `d54131f`, "Multi-FFT, lock-free input ring, layer threads, audit
+fixes") adopted this project's layered design as **Multi-FFT**. Every item, checked against its
+source (`AnalysisPipeline.cpp`, `RateModel.h`, `LayerPool.h`, `DSPModules.h`, CHANGELOG and
+AUDIT_AND_PLAN.md):
+
+| CHOP v2.13 item | AV_AudioVisual |
+| :-- | :-- |
+| Layer gains: `(1/L) / 2^(k-1)` coherent gain, `1/L` full scale; 0 dBFS = the 1024 layer's coherent gain | Same math; was applied in two passes per bin, now **folded into the window coefficients** as in the CHOP |
+| A layer whose whole window is digital silence contributes exactly 0 and is not computed | **Was a bug here**: the whole frame blanked when the first window fell silent although longer layers still held audio. Now per layer, judged on the raw input (below -100 dBFS); the frame is silent when every layer is (`silence_is_skipped_per_layer_not_per_frame`) |
+| Hop-Scaled long-layer refresh: layer 4 every 2nd job, 5 every 4th, 6 every 8th, phases 0/1/3 | **Added** (`analysis.layerRefresh`); equals Every Frame on a steady tone within 2e-3; 6 layers sequential p50 270 -> 187 us |
+| Layer Threads 1..6 over a static longest-first pool, identical at any count | **Added** (`analysis.layerThreads`, 0 = auto: one per layer from 3 layers); bit-identical at 1..6 threads, with Hop-Scaled and with layers dropping out (test) |
+| Spectral features from layer 1, band levels corrected for its 1/L gain | **Changed** to match (was the average) |
+| Input ring: a window change keeps the history | **Added**: a new analyzer adopts the history, silence run, DC/EQ state and, when the output keeps its shape, the envelope and AGC level; the "ballistics restart on a swap" gap is closed |
+| F2 ballistics and AGC on audio time | Already (hop / rate) |
+| F10 log floor < display max; shelf with a non-finite design switched off | Log floor already held at <= max / 2; the non-finite guard is **added**; gains already limited to -24..36 dB. Also added: non-finite input samples are dropped (a NaN would poison the filters) |
+| F11 Reset as a flag acted on by the next cook | **Added**: Studio Reset -> `reset_analysis` -> handled at the next hop boundary (filters, ballistics, AGC, features; the audio is kept) |
+| Auto = largest layer's N/2+1; layers sharing an FFT size summed then warped once | Same output; here every layer always shares one FFT size (product owner's rule), grown at run time to the longest window, so there is one group |
+| Silence short-circuit only for linear magnitude with ballistics off | Same: a dB display still publishes its floor and ballistics keep decaying |
+| F1 stale cooks, F3 cook rate, F4/F5 planner locks, F6 backend cache, F7 presets, SampleRing seqlock | TouchDesigner/FFTW specifics with no counterpart: the engine analyses only new samples by construction, plans are built off the analysis thread, there are no fixed presets |
+| v2.12 AVX2 kernels (dB, warp, features) | Not ported yet: at the default 1,024 output bins they are a few microseconds of an ~85 us hop that the FFTs dominate (ZER0 measured 1.1-2.9x on those stages only). Revisit with large Auto output bins |
+
 ---
 
 ## 3. Concentric spectrum view

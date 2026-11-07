@@ -26,8 +26,8 @@ pub struct StatusSnapshot {
     pub layers: u32,
     /// Window of the first layer, samples.
     pub window_samples: u32,
-    /// Layers run one per core.
-    pub parallel: bool,
+    /// Threads the layers run on (1 = the analysis thread only).
+    pub threads: u32,
     /// Frequency of the loudest output bin in the newest frame.
     pub peak_hz: f32,
     /// Spectral features of the newest frame, when enabled (centroid Hz, rolloff Hz, flatness,

@@ -24,6 +24,26 @@ The engine uses the parallel runner from 3 layers up. Every configuration fits t
 in parallel; sequentially L=6 N=65,536 does not. Allocation gate: `cargo test -p av-engine --test
 alloc` (parallel dispatch and collect, 500 hops, zero allocations on the analysis thread).
 
+## FFT CHOP v2.13 parity: folded gains, thread count, Hop-Scaled refresh (2026-11-08)
+
+Command: `cargo run --release -p av-engine --example layer_timing` (3,000 hops after 100
+warm-up, sine input). Same machine; the desktop was not idle, so treat +-15 % as noise.
+
+| Config | Threads | Refresh | p50 | p99 |
+| :-- | --: | :-- | --: | --: |
+| **default** (4 layers, N = 32,768) | 1 | every frame | 182.2 us | 251.7 us |
+| **default** | **4 (auto)** | every frame | **85.3 us** | **143.4 us** |
+| default | 4 | hop-scaled | 103.6 us | 189.2 us |
+| 6 layers, N = 32,768 | 1 | every frame | 269.7 us | 417.8 us |
+| 6 layers, N = 32,768 | 1 | hop-scaled | 186.7 us | 322.4 us |
+| 6 layers, N = 32,768 | 6 (auto) | every frame | 133.4 us | 281.0 us |
+| 6 layers, N = 65,536 | 6 (auto) | every frame | 269.8 us | 490.7 us |
+| 6 layers, N = 65,536 | 6 | hop-scaled | 242.9 us | 382.4 us |
+
+The default went from 112 / 181 us (p50 / p99) to 85 / 143 us with the gains folded into the
+windows. Auto (one thread per layer) stays the fastest choice; Hop-Scaled pays off when fewer
+threads than layers are used.
+
 ## DSP: CHOP chain with layers (ADR-021), 2026-11-08
 
 Commands: `cargo run --release -p av-dsp --example dsp_timing` (sequential) and

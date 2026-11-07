@@ -487,13 +487,24 @@ export const PAGES: ReadonlyArray<{ id: PageId; label: string; params: ReadonlyA
     label: "Performance",
     params: [
       {
+        kind: "number",
+        key: "layerThreads",
+        label: "Layer threads (0 = auto)",
+        min: 0,
+        max: 6,
+        step: 1,
+        integer: true,
+        when: (a) => a.layers > 1,
+        help: "Threads the layers are spread over, the analysis thread included. Auto: one per layer from 3 layers. Results are identical at any count.",
+      },
+      {
         kind: "select",
-        key: "parallelLayers",
-        label: "Parallel layers (one core each)",
+        key: "layerRefresh",
+        label: "Long-layer refresh",
+        when: (a) => a.layers > 3,
         options: [
-          { value: "auto", label: "Auto (from 3 layers)" },
-          { value: "always", label: "Always" },
-          { value: "never", label: "Never" },
+          { value: "everyFrame", label: "Every frame (exact)" },
+          { value: "hopScaled", label: "Hop-scaled (layer 4 /2, 5 /4, 6 /8)" },
         ],
       },
       {

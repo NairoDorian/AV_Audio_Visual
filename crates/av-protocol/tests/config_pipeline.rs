@@ -49,7 +49,7 @@ fn corrupt_text_gives_defaults_and_asks_for_a_backup() {
 
 #[test]
 fn partial_store_keeps_what_it_has_and_fills_the_rest() {
-    let l = cfg(r#"{ "schemaVersion": 2, "analysis": { "outputBins": 64 } }"#);
+    let l = cfg(r#"{ "schemaVersion": 3, "analysis": { "outputBins": 64 } }"#);
     assert_eq!(l.value.analysis.output_bins, 64);
     assert_eq!(l.value.analysis.db_range, 80.0);
     assert_eq!(l.value.audio, AppConfig::default().audio);
@@ -141,7 +141,7 @@ fn a_newer_schema_keeps_known_fields_and_asks_for_a_backup() {
     let l = cfg(r#"{ "schemaVersion": 99, "analysis": { "outputBins": 32 }, "future": true }"#);
     assert_eq!(l.report.newer_version, Some(99));
     assert_eq!(l.value.analysis.output_bins, 32);
-    assert_eq!(l.value.schema_version, 2);
+    assert_eq!(l.value.schema_version, 3);
     assert!(l.report.needs_backup());
 }
 
@@ -191,7 +191,7 @@ fn schema_v1_migrates_presets_bands_and_db_bounds() {
         l.report.needs_backup(),
         "a migrated store keeps its v1 original"
     );
-    assert_eq!(l.value.schema_version, 2);
+    assert_eq!(l.value.schema_version, 3);
     assert_eq!((a.window_samples, a.hop_samples, a.layers), (2048, 512, 1));
     assert_eq!(a.scale, Scale::Mel);
     assert_eq!((a.log_floor_hz, a.display_max_hz), (40.0, 16_000.0));
@@ -204,6 +204,19 @@ fn schema_v1_migrates_presets_bands_and_db_bounds() {
     assert_eq!(a.warp_blend, 0.5);
     assert!(l.report.unknown.is_empty(), "{:?}", l.report.unknown);
     assert!(l.report.healed.is_empty(), "{:?}", l.report.healed);
+}
+
+#[test]
+fn schema_v2_parallel_layers_become_layer_threads() {
+    for (old, threads) in [("auto", 0), ("always", 6), ("never", 1)] {
+        let l = cfg(&format!(
+            r#"{{ "schemaVersion": 2, "analysis": {{ "parallelLayers": "{old}", "layers": 3 }} }}"#
+        ));
+        assert_eq!(l.report.migrated_from, Some(2));
+        assert_eq!(l.value.analysis.layer_threads, threads, "{old}");
+        assert_eq!(l.value.analysis.layers, 3);
+        assert!(l.report.unknown.is_empty(), "{:?}", l.report.unknown);
+    }
 }
 
 #[test]

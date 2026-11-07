@@ -38,6 +38,11 @@ already ports the CHOP's chain to Rust.
 - The saved zero-pad length is never raised to fit a longer window; the analyzer grows the
   transform at run time, so the user's choice returns when the window shrinks.
 
+Amended 2026-11-08 (FFT CHOP v2.13.0 audit, docs/super-fft.md 2.1): schema v3 adds
+`layerRefresh` and replaces `parallelLayers` with `layerThreads`; silence is skipped per layer;
+layer gains live in the window coefficients; features read layer 1; a new analyzer adopts the
+audio context of the one it replaces; Reset is a command.
+
 ## Consequences
 
 - Frames can carry up to 65,537 values. The slot ring reserves that per slot from the zeroing

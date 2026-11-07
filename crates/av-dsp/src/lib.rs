@@ -24,7 +24,7 @@ pub mod window;
 pub use analyzer::{Analyzer, DspError, FrameData, PlanCache, SpectrumConfig};
 pub use eq::EqConfig;
 pub use features::SpectralFeatures;
-pub use layers::{LayerRunner, LayerUnit, SequentialLayers};
+pub use layers::{LayerPlan, LayerRunner, LayerUnit, SequentialLayers};
 pub use scope::Scope;
 pub use warp::{Axis, Warp};
 pub use window::WindowKind;

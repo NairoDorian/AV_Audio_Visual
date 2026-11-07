@@ -53,8 +53,8 @@ pub struct AudioStatus {
     pub output_bins: u32,
     pub layers: u32,
     pub window_samples: u32,
-    /// Layers run one per core.
-    pub parallel: bool,
+    /// Threads the layers run on.
+    pub threads: u32,
     /// Loudest output bin of the newest frame.
     pub peak_hz: f32,
     /// Spectral features of the newest frame, when enabled.
@@ -191,6 +191,13 @@ impl AudioService {
         }
     }
 
+    /// The FFT CHOP's Reset on the running engine, if any.
+    pub fn reset(&self) {
+        if let Some(active) = lock(&self.active).as_ref() {
+            active.engine.reset();
+        }
+    }
+
     /// Applies new analysis settings to the running engine, if any.
     pub fn reconfigure(&self, analysis: &AnalysisConfig) {
         if let Some(active) = lock(&self.active).as_ref() {
@@ -234,7 +241,7 @@ impl AudioService {
             output_bins: s.bar_count,
             layers: s.layers,
             window_samples: s.window_samples,
-            parallel: s.parallel,
+            threads: s.threads,
             peak_hz: s.peak_hz,
             features: s.features.map(Features::from),
             generation: s.generation,

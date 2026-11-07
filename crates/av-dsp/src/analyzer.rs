@@ -5,8 +5,10 @@
 //!
 //! DC blocker -> shelf EQ (new samples only, stateful) -> sliding history -> layers (each
 //! windows the newest `window * 2^(k-1)` samples, zero-pads to the one common FFT size,
-//! transforms, and reports `|X| * 2 / sum(w_k)` for the bins the warp reads) -> per-bin average
-//! over layers -> magnitude normalization (coherent gain or full scale) -> spectral features ->
+//! transforms, and reports `|X|` for the bins the warp reads, with the calibration
+//! `2 / sum(w_k)`, the magnitude normalization and the `1 / L` average folded into its window,
+//! FFT CHOP v2.13) -> per-bin sum over the layers that are not silent -> spectral features (layer
+//! 1, the most reactive) ->
 //! warp onto the output axis (scale, warp blend, interpolation, peak/RMS aggregation) ->
 //! equal-loudness weighting -> reference (frame peak, dBFS or AGC) -> loudness (dB over the dB
 //! range, or linear) onto 0..1 -> attack/release ballistics -> peak search.
@@ -26,16 +28,16 @@
 use std::sync::Arc;
 
 use av_protocol::config::{
-    AnalysisConfig, BallisticsMode, DbReference, KaiserBetaMode, LoudnessMode, MAX_FFT_SIZE,
-    MAX_LAYERS, MAX_OUTPUT_BINS, MAX_WINDOW, MIN_WINDOW, MagnitudeNorm, OutputBinsMode, Scale,
-    WarpAggregation, WarpInterp, Weighting, WindowLengthMode,
+    AnalysisConfig, BallisticsMode, DbReference, KaiserBetaMode, LayerRefresh, LoudnessMode,
+    MAX_FFT_SIZE, MAX_LAYERS, MAX_OUTPUT_BINS, MAX_WINDOW, MIN_WINDOW, MagnitudeNorm,
+    OutputBinsMode, Scale, WarpAggregation, WarpInterp, Weighting, WindowLengthMode,
 };
 use realfft::{RealFftPlanner, RealToComplex};
 
 use crate::dc::DcBlocker;
 use crate::eq::{EqConfig, ShelfEq};
 use crate::features::SpectralFeatures;
-use crate::layers::{LayerRunner, LayerUnit, SequentialLayers, newest};
+use crate::layers::{LayerPlan, LayerRunner, LayerUnit, SequentialLayers, newest};
 use crate::warp::{Axis, Warp, max_of};
 use crate::window::{WindowKind, kaiser_beta_for_sidelobe_db};
 use crate::{ballistics, db, features};
@@ -217,17 +219,43 @@ impl SpectrumConfig {
         }
     }
 
-    /// The layer units of this config, each computing `bins_used` bins (allocates; off the hot
-    /// path). Hand them to any [`LayerRunner`].
+    /// Applied after calibration: 1 (full scale) or `window / 2` (coherent gain), so a sine
+    /// reads the first layer's coherent gain in every layer (the CHOP's `1 / 2^(k-1)`).
+    pub fn norm_scale(&self) -> f32 {
+        match self.settings.magnitude_norm {
+            MagnitudeNorm::FullScale => 1.0,
+            MagnitudeNorm::CoherentGain => self.window_samples as f32 * 0.5,
+        }
+    }
+
+    /// The layer units of this config, each computing `bins_used` bins, with the normalization
+    /// and the `1 / L` average folded into the windows (allocates; off the hot path). Hand them
+    /// to any [`LayerRunner`].
     pub fn build_units(
         &self,
         fft: &Arc<dyn RealToComplex<f32>>,
         bins_used: usize,
     ) -> Vec<LayerUnit> {
         let kind = self.window_kind();
+        let gain = self.norm_scale() / self.layers as f32;
         (0..self.layers)
-            .map(|k| LayerUnit::new(self.layer_window(k), kind, fft.clone(), bins_used))
+            .map(|k| LayerUnit::new(self.layer_window(k), kind, fft.clone(), bins_used, gain))
             .collect()
+    }
+
+    /// Hop-Scaled refresh (FFT CHOP v2.13 `layerRefreshDivisor` / `layerRefreshPhase`): layer
+    /// `k` (0-based) is recomputed on hops where `hop % divisor == phase`.
+    pub fn refresh(&self, k: usize) -> (u64, u64) {
+        if self.settings.layer_refresh != LayerRefresh::HopScaled || k < 3 {
+            return (1, 0);
+        }
+        let divisor = 1u64 << (k - 2).min(3);
+        let phase = match k {
+            3 => 0,
+            4 => 1,
+            _ => 3,
+        };
+        (divisor, phase)
     }
 
     pub fn validate(&self) -> Result<(), DspError> {
@@ -328,6 +356,10 @@ impl PlanCache {
     }
 }
 
+/// Raw input samples that are not finite are replaced by this (a NaN would poison the filter
+/// state and every later frame).
+const NON_FINITE_SAMPLE: f32 = 0.0;
+
 /// What one hop produced. Borrowed from the analyzer; copy out what you keep.
 #[derive(Debug, Clone, Copy)]
 pub struct FrameData<'a> {
@@ -343,6 +375,8 @@ pub struct FrameData<'a> {
     pub reference: f32,
     /// Present when spectral features are enabled.
     pub features: Option<SpectralFeatures>,
+    /// Layers that were recomputed this hop (bit k = layer k).
+    pub computed: u32,
 }
 
 pub struct Analyzer {
@@ -360,10 +394,17 @@ pub struct Analyzer {
     have_prev: bool,
     dc: DcBlocker,
     eq: ShelfEq,
-    /// Applied after the layer average: 1 (full scale) or `window / 2` (coherent gain).
-    norm_scale: f32,
     /// What a full-scale sine reads after normalization (the dBFS reference).
     dbfs_ref: f32,
+    /// Newest raw input samples in a row below the silence threshold: layer k is silent when
+    /// this reaches its window.
+    quiet_run: usize,
+    /// Layers holding a magnitude from an earlier hop (bit k), for Hop-Scaled reuse.
+    valid: u32,
+    /// Hops analysed, for the refresh phases.
+    hop_index: u64,
+    /// `(divisor, phase)` per layer.
+    refresh: [(u64, u64); MAX_LAYERS as usize],
     agc_peak: f32,
     clipped: bool,
     input_peak: f32,
@@ -408,16 +449,17 @@ impl Analyzer {
             (warp.max_linear_index() + 1).min(nlin)
         };
         let units = cfg.build_units(&fft, bins_used);
+        let mut refresh = [(1, 0); MAX_LAYERS as usize];
+        for (k, r) in refresh.iter_mut().enumerate() {
+            *r = cfg.refresh(k);
+        }
         let weights = if s.weighting == Weighting::Off {
             Vec::new()
         } else {
             crate::weighting::curve(s.weighting, warp.target_hz())
         };
         let n_out = warp.output_bins();
-        let norm_scale = match s.magnitude_norm {
-            MagnitudeNorm::FullScale => 1.0,
-            MagnitudeNorm::CoherentGain => cfg.window_samples as f32 * 0.5,
-        };
+        let norm_scale = cfg.norm_scale();
         Ok(Self {
             runner: make_runner(units),
             magnitude: vec![0.0; bins_used],
@@ -430,8 +472,11 @@ impl Analyzer {
             have_prev: false,
             dc: DcBlocker::new(cfg.sample_rate),
             eq: ShelfEq::new(&cfg.eq(), cfg.sample_rate),
-            norm_scale,
             dbfs_ref: norm_scale,
+            quiet_run: 0,
+            valid: 0,
+            hop_index: 0,
+            refresh,
             agc_peak: 0.0,
             clipped: false,
             input_peak: 0.0,
@@ -444,9 +489,51 @@ impl Analyzer {
         &self.cfg
     }
 
-    /// True when the layer runner uses more than one thread.
-    pub fn parallel(&self) -> bool {
-        self.runner.is_parallel()
+    /// Threads the layers run on (1 = the analysis thread only).
+    pub fn threads(&self) -> usize {
+        self.runner.threads()
+    }
+
+    /// Carries the audio context of the analyzer this one replaces (a setting changed): the
+    /// newest samples of its history, its silence run and DC state, and, when the output keeps
+    /// its shape, the ballistics envelope and the AGC level. A setting change then neither
+    /// restarts from silence nor dips the display (FFT CHOP v2.13: "a window change keeps the
+    /// history"). Allocation-free.
+    pub fn adopt(&mut self, old: &Analyzer) {
+        let n = self.history.len().min(old.history.len());
+        let (o_old, o_new) = newest(&old.history, old.write_pos, n);
+        let cap = self.history.len();
+        let start = (cap - n) % cap;
+        for (i, &x) in o_old.iter().chain(o_new).enumerate() {
+            self.history[(start + i) % cap] = x;
+        }
+        self.write_pos = 0;
+        self.quiet_run = old.quiet_run;
+        self.dc = old.dc.clone();
+        if self.cfg.eq() == old.cfg.eq() && self.cfg.sample_rate == old.cfg.sample_rate {
+            self.eq = old.eq.clone();
+        }
+        let same_shape = self.envelope.len() == old.envelope.len()
+            && self.cfg.settings.loudness == old.cfg.settings.loudness;
+        if same_shape {
+            self.envelope.copy_from_slice(&old.envelope);
+        }
+        if self.cfg.settings.magnitude_norm == old.cfg.settings.magnitude_norm
+            && self.dbfs_ref == old.dbfs_ref
+        {
+            self.agc_peak = old.agc_peak;
+        }
+    }
+
+    /// The FFT CHOP's Reset: clears the filter, ballistics, AGC and feature state and recomputes
+    /// every layer; the sample history (the audio itself) is kept.
+    pub fn reset_state(&mut self) {
+        self.dc.reset();
+        self.eq.reset();
+        self.envelope.fill(0.0);
+        self.agc_peak = 0.0;
+        self.have_prev = false;
+        self.valid = 0;
     }
 
     /// Frequency of every output bin.
@@ -473,6 +560,8 @@ impl Analyzer {
         self.dc.reset();
         self.eq.reset();
         self.have_prev = false;
+        self.quiet_run = 0;
+        self.valid = 0;
     }
 
     /// Feeds one hop of mono samples (normally `hop_samples` long) and analyses the newest
@@ -484,10 +573,19 @@ impl Analyzer {
         self.clipped = false;
         self.input_peak = 0.0;
         for &x in hop {
+            let x = if x.is_finite() { x } else { NON_FINITE_SAMPLE };
             self.clipped |= x.abs() >= 1.0;
             self.input_peak = self.input_peak.max(x.abs());
-            self.history[self.write_pos] = self.eq.process(self.dc.process(x));
+            let y = self.eq.process(self.dc.process(x));
+            self.history[self.write_pos] = y;
             self.write_pos = (self.write_pos + 1) % cap;
+            // Judged on the raw input, as the CHOP judges its input ring: the DC blocker and EQ
+            // tails after an abrupt stop are sub-audible decays, not signal.
+            self.quiet_run = if x.abs() < SILENCE_THRESHOLD {
+                self.quiet_run.saturating_add(1)
+            } else {
+                0
+            };
         }
         let s = &self.cfg.settings;
         let dt_ms = if dt.is_finite() && dt > 0.0 {
@@ -496,13 +594,25 @@ impl Analyzer {
             self.cfg.hop_samples as f64 * 1000.0 / self.cfg.sample_rate as f64
         };
 
-        // Silence is judged on the shortest layer's window: the newest audio.
-        let (older, newer) = newest(&self.history, self.write_pos, self.cfg.window_samples);
-        let peak = older
-            .iter()
-            .chain(newer)
-            .fold(0.0f32, |m, &x| m.max(x.abs()));
-        let silent = peak < SILENCE_THRESHOLD;
+        // Per-layer silence (FFT CHOP v2.13): a layer whose whole window is below the silence
+        // threshold contributes exactly 0 and is not computed; the frame is silent only when
+        // every layer is. Hop-Scaled refresh recomputes the long layers on their phase only.
+        let mut include = 0u32;
+        let mut compute = 0u32;
+        for k in 0..self.cfg.layers {
+            if self.quiet_run >= self.cfg.layer_window(k) {
+                continue;
+            }
+            include |= 1 << k;
+            let (divisor, phase) = self.refresh[k];
+            let due = self.valid & (1 << k) == 0 || self.hop_index % divisor == phase;
+            if due {
+                compute |= 1 << k;
+            }
+        }
+        self.valid = (self.valid | compute) & include;
+        self.hop_index = self.hop_index.wrapping_add(1);
+        let silent = include == 0;
 
         let mut feats = None;
         if silent {
@@ -514,12 +624,9 @@ impl Analyzer {
                 feats = Some(SpectralFeatures::default());
             }
         } else {
+            let plan = LayerPlan { include, compute };
             self.runner
-                .run(&self.history, self.write_pos, &mut self.magnitude);
-            let k = self.norm_scale / self.runner.layer_count() as f32;
-            for m in self.magnitude.iter_mut() {
-                *m *= k;
-            }
+                .run(&self.history, self.write_pos, plan, &mut self.magnitude);
             // Full scale: DC and Nyquist have no mirrored half.
             if s.magnitude_norm == MagnitudeNorm::FullScale {
                 self.magnitude[0] *= 0.5;
@@ -529,15 +636,23 @@ impl Analyzer {
                 }
             }
             if s.spectral_features {
-                let (older, newer) = newest(&self.history, self.write_pos, self.cfg.window_samples);
-                feats = Some(features::compute(
-                    &self.magnitude,
-                    self.cfg.sample_rate as f64 / self.cfg.fft_size as f64,
-                    [older, newer],
-                    &mut self.feature_prev,
-                    self.have_prev,
-                ));
-                self.have_prev = true;
+                if include & 1 != 0 {
+                    // Layer 1 (the most reactive), corrected for its 1/L share.
+                    let (older, newer) =
+                        newest(&self.history, self.write_pos, self.cfg.window_samples);
+                    feats = Some(features::compute(
+                        self.runner.first_magnitude(),
+                        self.cfg.sample_rate as f64 / self.cfg.fft_size as f64,
+                        [older, newer],
+                        self.cfg.layers as f32,
+                        &mut self.feature_prev,
+                        self.have_prev,
+                    ));
+                    self.have_prev = true;
+                } else {
+                    feats = Some(SpectralFeatures::default());
+                    self.have_prev = false;
+                }
             }
             self.warp.apply(&self.magnitude, &mut self.out);
             for (v, &w) in self.out.iter_mut().zip(&self.weights) {
@@ -591,6 +706,7 @@ impl Analyzer {
             peak_hz,
             reference,
             features: feats,
+            computed: compute,
         }
     }
 }

@@ -23,7 +23,7 @@ function resolvePath(doc: unknown, path: string): unknown {
   }, doc);
 }
 
-const VERSIONS = { config: 2, scene: 2 } as const;
+const VERSIONS = { config: 3, scene: 2 } as const;
 
 for (const kind of ["config", "scene"] as const) {
   describe(`${kind} settings parity`, () => {

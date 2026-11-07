@@ -307,7 +307,9 @@ export default function App() {
                 <dt>Layers / first window</dt>
                 <dd>
                   {fmt(status()?.layers)} / {fmt(status()?.windowSamples)}
-                  {status()?.parallel ? " (parallel)" : ""}
+                  {status()?.threads && status()!.threads > 1
+                    ? ` (${status()!.threads} threads)`
+                    : ""}
                 </dd>
                 <dt>Output bins</dt>
                 <dd>{fmt(status()?.outputBins)}</dd>

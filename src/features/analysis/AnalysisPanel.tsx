@@ -7,6 +7,7 @@ import {
   applyPreset,
   deletePreset,
   listPresets,
+  resetAnalysis,
   savePreset,
   type AnalysisConfig,
   type Applied,
@@ -105,6 +106,13 @@ export default function AnalysisPanel(props: {
         />
         <button type="button" class="primary" disabled={!name().trim()} onClick={save}>
           Save preset
+        </button>
+        <button
+          type="button"
+          title="Clear the EQ, ballistics, AGC and feature state (FFT CHOP Reset)"
+          onClick={() => resetAnalysis().catch((e) => props.onError(String(e)))}
+        >
+          Reset
         </button>
       </div>
 

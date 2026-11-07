@@ -137,7 +137,8 @@ pub fn run() {
             commands::list_presets,
             commands::save_preset,
             commands::apply_preset,
-            commands::delete_preset
+            commands::delete_preset,
+            commands::reset_analysis
         ])
         .setup(move |app| {
             // 7. Let the panic hook reach the app.

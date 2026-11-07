@@ -25,6 +25,7 @@ What is implemented versus planned, kept truthful (AGENTS.md section 8). Steps r
 | :-- | :-- |
 | Layered FFT (1-6 layers, zero-padded, 1/2^(k-1) scaled, averaged) | Done: default 4 layers of 1,024-8,192, FFT 32,768, parallel from 3 layers; magnitudes only where read. Open: layer decimation, AVX2 kernels, MMCSS priority |
 | FFT CHOP integration (every parameter, ADR-021) | Done: all pages in the Studio, one built-in default, user presets saved as files. Not ported: FFTW planner/backend, ingest, worker wake (TouchDesigner-only) |
+| FFT CHOP v2.13.0 parity audit (docs/super-fft.md 2.1) | Done: per-layer silence (bug fixed), Hop-Scaled refresh, layer threads 1..6, folded gains, layer-1 features, history kept across setting changes, Reset, F10 guards. Open: AVX2 kernels |
 | Concentric spectrum view (ZER0 circular scope) | Done in the Studio preview: outer/inner lines, outer/inner/spanning bars, bar inset, base circle, up to 4,096 ring bins (scene format v2). Native wgpu version with A9 |
 | Raw audio scope (tapered one-frame trace, linear and inside the ring with mirrors and rotational copies) | Done in the Studio preview: wire v2 waveform block, half-sine taper in the engine, linear scope in bar scenes, ring traces with both mirrors and 1-8 rotational copies |
 
@@ -38,6 +39,5 @@ What is implemented versus planned, kept truthful (AGENTS.md section 8). Steps r
 - Analysis runs at the source rate; resampling to 48 kHz arrives with live capture.
 - Timestamps use the sample-count clock; device-clock anchoring arrives with WASAPI.
 - The analysis worker polls every quarter hop while active; deep-idle parking is Phase 1B.6.
-- A generation swap restarts ballistics from zero (a brief dip in the preview).
 - Scene editing is not in the Studio yet: the display bar count is a preview-only control.
 - Linux and macOS: compile and unit tests pass in CI; nothing has been run interactively there.
