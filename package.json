@@ -23,7 +23,8 @@
     "precommit:full": "bun scripts/pre-commit.ts --full",
     "precommit:routine": "bun scripts/pre-commit.ts --routine",
     "hooks:install": "git config core.hooksPath .githooks",
-    "hooks:uninstall": "git config --unset core.hooksPath"
+    "hooks:uninstall": "git config --unset core.hooksPath",
+    "fixtures": "bun scripts/fixtures.ts"
   },
   "dependencies": {
     "@solidjs/web": "2.0.0-rc.21",
