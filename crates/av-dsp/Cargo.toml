@@ -11,6 +11,14 @@ publish.workspace = true
 
 [dependencies]
 av-protocol.workspace = true
+realfft.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "analyzer"
+harness = false
 
 [lints]
 workspace = true

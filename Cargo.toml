@@ -44,6 +44,10 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 tracing-appender = "0.2.5"
 
+# DSP
+realfft = "3.5.1"
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
+
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 missing_debug_implementations = "warn"

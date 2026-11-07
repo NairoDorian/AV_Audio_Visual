@@ -24,7 +24,8 @@
     "precommit:routine": "bun scripts/pre-commit.ts --routine",
     "hooks:install": "git config core.hooksPath .githooks",
     "hooks:uninstall": "git config --unset core.hooksPath",
-    "fixtures": "bun scripts/fixtures.ts"
+    "fixtures": "bun scripts/fixtures.ts",
+    "bench": "cargo bench -p av-dsp"
   },
   "dependencies": {
     "@solidjs/web": "2.0.0-rc.21",
