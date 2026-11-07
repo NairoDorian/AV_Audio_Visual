@@ -5,13 +5,15 @@
 > system output by default, optionally to the microphone, and turns what you hear into a live,
 > configurable visual.
 
-**Status: Phase 0 complete; plan third pass done (2026-11-07).** The reference library, 14 source
-studies and a cross-project synthesis are in [`references/README.md`](references/README.md). The
-audits, de-risking spikes, contracts and acceptance gates are in [`docs/pre-plan.md`](docs/pre-plan.md).
-The buildable workspace (verified versions, crate graph, threads, scripts, ordered tasks) is in
-[`docs/phase-1a-blueprint.md`](docs/phase-1a-blueprint.md). No application code has been scaffolded
-yet. The next step is Phase 1A Track A step A1 (scaffold) with the Phase 0.5 platform spikes in
-parallel.
+**Status: Phase 1A in progress (2026-11-07).** Track A steps A1, A2 (gate, identity, CI), A4, A5,
+A6, A7 and A8 are implemented: the Tauri 3 / SolidJS 2 workspace, the wire format with Rust/TS
+parity, versioned config and scenes, the DSP analyzer (numeric and allocation gates green), the
+analysis engine with its seqlock frame ring, and a live Studio preview fed by a demo or file
+source. Still open: the dependency updater port (A2), typed IPC (A3), headless rendering (A9),
+platform hosts (A10) and every Track B platform spike. There is no visualizer window and no live
+system-audio capture yet. [`PROGRESS.md`](PROGRESS.md) tracks each item; the plan documents are
+[`docs/pre-plan.md`](docs/pre-plan.md) and [`docs/phase-1a-blueprint.md`](docs/phase-1a-blueprint.md).
+The research library (`references/`) stays local and is not part of the repository.
 
 The name may gain a suffix later (for example `AV_Panel` or `AV_Background`). The product
 requirements do not depend on the final name; the working title is used throughout the code and
@@ -1003,11 +1005,14 @@ Upstream notices must be preserved when code or algorithms are derived from MIT/
 - [x] Third pass (2026-11-07): three placements as first-class product modes with a geometry and
       input contract; Audio HUD study; updater ported from ZER0 + CursorFX with an always-newest
       policy; P0.8/P0.9 spikes; ADR-018/019.
-- [ ] Track A step A1: scaffold the Tauri 3 / Bun / SolidJS 2 workspace and startup order (closes
+- [x] Track A step A1: scaffold the Tauri 3 / Bun / SolidJS 2 workspace and startup order (closes
       P0.1).
-- [ ] Track A step A2: port and adapt the reference updater and pre-commit scripts.
-- [ ] Track A A3-A10 and Track B P0.2/P0.3/P0.6/P0.7/P0.8/P0.9 in parallel, with evidence.
+- [ ] Track A step A2: pre-commit gate, identity mirror, crate-graph check and CI done; the
+      reference updater port is still open.
+- [x] Track A A4-A8: wire format with Rust/TS parity (closes P0.5), config/scenes, DSP (closes
+      P0.4), engine and slot ring, Studio preview.
+- [ ] Track A A3, A9, A10 and Track B P0.2/P0.3/P0.6/P0.7/P0.8/P0.9, with evidence.
 - [ ] Phase 1B: ship overlay first light on Windows with system audio and per-bar bars.
 
-The next action is Track A step A1. Do not start Background, Taskbar, media or 3D work before the
+The next actions are A3 (typed IPC), A9/A10 and spikes P0.2/P0.3; see [`PROGRESS.md`](PROGRESS.md). Do not start Background, Taskbar, media or 3D work before the
 overlay path is measured and visually verified.
