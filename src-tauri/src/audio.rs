@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use av_audio::synth::demo_track;
-use av_audio::{CaptureBackend, FileSource, ring};
+use av_audio::{CaptureBackend, CaptureState, FileSource, LiveKind, LiveSource, ring};
 use av_dsp::SpectrumConfig;
 use av_engine::Engine;
 use av_engine::preview::PreviewEncoder;
@@ -20,8 +20,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum SourceRequest {
+    /// What the computer is playing (WASAPI loopback on Windows).
+    System,
+    /// The default microphone; only ever opened when asked for.
+    Microphone,
     Demo,
-    File { path: String },
+    File {
+        path: String,
+    },
 }
 
 /// What is playing, for the Studio.
@@ -53,11 +59,13 @@ pub struct AudioStatus {
     pub silent: bool,
     pub starved_hops: u64,
     pub clock: &'static str,
+    /// `running`, `finished`, `failed` (device lost) or `stopped`.
+    pub capture: &'static str,
 }
 
 struct Active {
     // Field order is drop order: stop the source before the engine it feeds.
-    source: FileSource,
+    source: Box<dyn CaptureBackend>,
     engine: Engine,
     info: SourceInfo,
 }
@@ -89,9 +97,19 @@ impl AudioService {
         analysis: &AnalysisConfig,
     ) -> Result<SourceInfo, String> {
         self.stop();
-        let (mut source, kind, label) = match request {
+        let (mut source, kind, label): (Box<dyn CaptureBackend>, _, _) = match request {
+            SourceRequest::System | SourceRequest::Microphone => {
+                let (live_kind, kind) = if matches!(request, SourceRequest::System) {
+                    (LiveKind::SystemOutput, "system")
+                } else {
+                    (LiveKind::Microphone, "microphone")
+                };
+                let live = LiveSource::open(live_kind).map_err(|e| e.to_string())?;
+                let label = live.device_label().to_string();
+                (Box::new(live), kind, label)
+            }
             SourceRequest::Demo => (
-                FileSource::new(demo_track(DEMO_RATE), true),
+                Box::new(FileSource::new(demo_track(DEMO_RATE), true)),
                 "demo",
                 "Demo track".to_string(),
             ),
@@ -102,7 +120,7 @@ impl AudioService {
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_else(|| "file".into());
                 let source = FileSource::open(&path, true).map_err(|e| e.to_string())?;
-                (source, "file", label)
+                (Box::new(source), "file", label)
             }
         };
         let format = source.format();
@@ -111,7 +129,7 @@ impl AudioService {
             emit_bins: true,
             ..SpectrumConfig::from_app(analysis, format.sample_rate)
         };
-        let engine = Engine::start("file", ring_source, format, cfg).map_err(|e| e.to_string())?;
+        let engine = Engine::start(kind, ring_source, format, cfg).map_err(|e| e.to_string())?;
         source.start(sink).map_err(|e| e.to_string())?;
         let info = SourceInfo {
             kind,
@@ -188,6 +206,12 @@ impl AudioService {
             dropped_samples: s.dropped_samples,
             silent: s.silent,
             starved_hops: s.starved_hops,
+            capture: match a.source.state() {
+                CaptureState::Running => "running",
+                CaptureState::Finished => "finished",
+                CaptureState::Failed => "failed",
+                CaptureState::Stopped => "stopped",
+            },
             clock: match s.clock {
                 av_engine::status::ClockSource::SampleCount => "sampleCount",
                 av_engine::status::ClockSource::Device => "device",

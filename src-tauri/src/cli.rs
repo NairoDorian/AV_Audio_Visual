@@ -8,6 +8,8 @@ pub struct CliArgs {
     pub hidden: bool,
     /// Start the built-in demo track at startup (manual checks, screenshots).
     pub demo: bool,
+    /// Start system-audio capture at startup (manual checks).
+    pub system: bool,
     /// Arguments the app did not recognise; logged once, never fatal.
     pub unknown: Vec<String>,
 }
@@ -19,6 +21,7 @@ impl CliArgs {
             match arg.as_str() {
                 "--hidden" => out.hidden = true,
                 "--demo" => out.demo = true,
+                "--system" => out.system = true,
                 _ => out.unknown.push(arg),
             }
         }

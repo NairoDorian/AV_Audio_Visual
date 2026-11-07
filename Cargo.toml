@@ -50,6 +50,7 @@ realfft = "3.5.1"
 rtrb = "0.4.1"
 symphonia = { version = "0.6.1", default-features = false, features = ["wav", "pcm", "flac", "mp3", "aac", "isomp4", "ogg", "vorbis"] }
 arc-swap = "1.9.3"
+cpal = "0.18.2"
 
 # Benchmarks
 criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }

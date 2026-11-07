@@ -140,7 +140,7 @@ export default function App() {
                 when={status()?.source}
                 fallback={
                   <p class="muted">
-                    No source is playing. Start the demo track in <b>Audio</b>.
+                    No source is playing. Pick <b>System audio</b> in <b>Audio</b>.
                   </p>
                 }
               >
@@ -249,8 +249,14 @@ export default function App() {
           <Match when={section() === "audio"}>
             <section class="card form">
               <div class="row">
-                <button type="button" class="primary" onClick={() => play({ kind: "demo" })}>
-                  Play demo track
+                <button type="button" class="primary" onClick={() => play({ kind: "system" })}>
+                  System audio
+                </button>
+                <button type="button" onClick={() => play({ kind: "microphone" })}>
+                  Microphone
+                </button>
+                <button type="button" onClick={() => play({ kind: "demo" })}>
+                  Demo track
                 </button>
                 <button type="button" onClick={stop} disabled={!status()?.source}>
                   Stop
@@ -273,7 +279,8 @@ export default function App() {
                 </button>
               </div>
               <p class="muted small">
-                System output and microphone capture arrive with Phase 1B (WASAPI loopback).
+                System audio captures what this computer plays (WASAPI loopback on Windows). The
+                microphone is used only when you pick it.
               </p>
             </section>
             <section class="card">
@@ -287,7 +294,13 @@ export default function App() {
                       {src().sampleRate} Hz, {src().channels} ch
                     </dd>
                     <dt>State</dt>
-                    <dd>{status()?.silent ? "silent" : "audible"}</dd>
+                    <dd>
+                      {status()?.capture === "failed"
+                        ? "device lost: pick the source again"
+                        : status()?.silent
+                          ? "silent"
+                          : "audible"}
+                    </dd>
                   </dl>
                 )}
               </Show>

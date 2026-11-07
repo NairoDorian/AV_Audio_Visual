@@ -145,10 +145,17 @@ pub fn run() {
             // 9-10. Visualizer hosts and the capture/analysis/render pipeline: Phase 1B.
             enter(Step::HostsHidden);
             enter(Step::Pipeline);
-            if cli.demo {
+            let startup_source = if cli.system {
+                Some(SourceRequest::System)
+            } else if cli.demo {
+                Some(SourceRequest::Demo)
+            } else {
+                None
+            };
+            if let Some(request) = startup_source {
                 let analysis = store_for_setup.get().analysis;
-                if let Err(e) = audio_for_setup.start(SourceRequest::Demo, &analysis) {
-                    tracing::warn!(target: "av_app::startup", "demo source failed: {e}");
+                if let Err(e) = audio_for_setup.start(request, &analysis) {
+                    tracing::warn!(target: "av_app::startup", "startup source failed: {e}");
                 }
             }
             tracing::info!(target: "av_app::startup", "startup complete");

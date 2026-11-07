@@ -73,10 +73,14 @@ export interface Scene {
   ring: Ring;
 }
 
-export type SourceRequest = { kind: "demo" } | { kind: "file"; path: string };
+export type SourceRequest =
+  | { kind: "system" }
+  | { kind: "microphone" }
+  | { kind: "demo" }
+  | { kind: "file"; path: string };
 
 export interface SourceInfo {
-  kind: "demo" | "file";
+  kind: "system" | "microphone" | "demo" | "file";
   label: string;
   sampleRate: number;
   channels: number;
@@ -97,6 +101,7 @@ export interface AudioStatus {
   silent: boolean;
   starvedHops: number;
   clock: string;
+  capture: "running" | "finished" | "failed" | "stopped";
 }
 
 /** True when the Studio runs inside the Tauri webview, false in a plain browser tab. */

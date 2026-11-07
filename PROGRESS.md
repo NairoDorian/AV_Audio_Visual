@@ -29,8 +29,8 @@ What is implemented versus planned, kept truthful (AGENTS.md section 8). Steps r
 
 ## Phase 0.5, Track B (platform spikes)
 
-P0.2 overlay, P0.3 WASAPI loopback, P0.6 lifecycle, P0.7 latency, P0.8 Background, P0.9 Taskbar:
-not started.
+- P0.3 WASAPI loopback: decided (cpal 0.18), live system audio and microphone in the Studio; format matrix, device-loss recovery and soak still open (docs/spikes/p0.3-loopback.md).
+- P0.2 overlay, P0.6 lifecycle, P0.7 latency, P0.8 Background, P0.9 Taskbar: not started.
 
 ## Known gaps
 

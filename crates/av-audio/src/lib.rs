@@ -6,9 +6,11 @@
 
 pub mod capture;
 pub mod file;
+pub mod live;
 pub mod ring;
 pub mod synth;
 
 pub use capture::{CaptureBackend, CaptureError, CaptureFormat, CaptureState};
 pub use file::{DecodedAudio, FileSource, decode_file};
+pub use live::{LiveKind, LiveSource};
 pub use ring::{AudioSink, AudioSource, RingCounters, ring};
