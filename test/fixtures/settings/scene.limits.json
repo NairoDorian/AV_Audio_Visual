@@ -1,0 +1,23 @@
+[
+  {
+    "default": 0.699999988079071,
+    "integer": false,
+    "max": 1.0,
+    "min": 0.05,
+    "path": "barWidth"
+  },
+  {
+    "default": 1.0,
+    "integer": false,
+    "max": 1.0,
+    "min": 0.0,
+    "path": "cornerRadius"
+  },
+  {
+    "default": 1.0,
+    "integer": false,
+    "max": 1.0,
+    "min": 0.0,
+    "path": "opacity"
+  }
+]

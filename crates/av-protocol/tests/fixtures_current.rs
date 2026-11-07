@@ -25,3 +25,17 @@ fn committed_wire_fixtures_are_current() {
         "manifest.json drifted; run `bun run fixtures`"
     );
 }
+
+#[test]
+fn committed_settings_fixtures_are_current() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test/fixtures/settings");
+    for (name, expected) in av_protocol::fixtures::settings_files() {
+        let on_disk = std::fs::read_to_string(dir.join(name))
+            .unwrap_or_else(|e| panic!("{name}: {e}; run `bun run fixtures`"));
+        assert_eq!(
+            on_disk.replace("\r\n", "\n"),
+            expected,
+            "{name} drifted; run `bun run fixtures`"
+        );
+    }
+}

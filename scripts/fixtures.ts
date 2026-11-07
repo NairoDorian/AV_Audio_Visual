@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 const ROOT = resolve(import.meta.dirname, "..");
 const r = spawnSync(
   "cargo",
-  ["run", "--quiet", "-p", "av-protocol", "--example", "dump_fixtures", "--", "test/fixtures/wire"],
+  ["run", "--quiet", "-p", "av-protocol", "--example", "dump_fixtures", "--", "test/fixtures"],
   { cwd: ROOT, stdio: "inherit" },
 );
 process.exit(r.status ?? 1);

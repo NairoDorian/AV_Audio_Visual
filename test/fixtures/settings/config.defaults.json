@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "audio": {
+    "source": "systemOutput",
+    "deviceId": null,
+    "avOffsetMs": 0.0
+  },
+  "analysis": {
+    "preset": "default",
+    "barCount": 48,
+    "layout": "log",
+    "minHz": 30.0,
+    "maxHz": 16000.0,
+    "dbFloor": -72.0,
+    "dbCeiling": 0.0,
+    "attackMs": 12.0,
+    "releaseMs": 220.0,
+    "autoGain": true
+  },
+  "performance": {
+    "fpsCap": 60,
+    "batteryMode": false,
+    "deepIdleAfterS": 30.0
+  },
+  "overlay": {
+    "enabled": true,
+    "input": "locked",
+    "captureVisible": true,
+    "anchor": {
+      "monitor": null,
+      "frame": "workArea",
+      "anchor": "bottomCenter",
+      "offsetDip": [
+        0.0,
+        -24.0
+      ],
+      "sizeDip": [
+        720.0,
+        160.0
+      ],
+      "orientation": "horizontal"
+    }
+  },
+  "scene": "bars"
+}

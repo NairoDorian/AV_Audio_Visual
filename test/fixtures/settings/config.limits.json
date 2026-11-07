@@ -1,0 +1,100 @@
+[
+  {
+    "default": 0.0,
+    "integer": false,
+    "max": 400.0,
+    "min": -100.0,
+    "path": "audio.avOffsetMs"
+  },
+  {
+    "default": 48.0,
+    "integer": true,
+    "max": 128.0,
+    "min": 1.0,
+    "path": "analysis.barCount"
+  },
+  {
+    "default": 30.0,
+    "integer": false,
+    "max": 2000.0,
+    "min": 10.0,
+    "path": "analysis.minHz"
+  },
+  {
+    "default": 16000.0,
+    "integer": false,
+    "max": 24000.0,
+    "min": 500.0,
+    "path": "analysis.maxHz"
+  },
+  {
+    "default": -72.0,
+    "integer": false,
+    "max": -20.0,
+    "min": -120.0,
+    "path": "analysis.dbFloor"
+  },
+  {
+    "default": 0.0,
+    "integer": false,
+    "max": 12.0,
+    "min": -40.0,
+    "path": "analysis.dbCeiling"
+  },
+  {
+    "default": 12.0,
+    "integer": false,
+    "max": 1000.0,
+    "min": 0.0,
+    "path": "analysis.attackMs"
+  },
+  {
+    "default": 220.0,
+    "integer": false,
+    "max": 5000.0,
+    "min": 1.0,
+    "path": "analysis.releaseMs"
+  },
+  {
+    "default": 60.0,
+    "integer": true,
+    "max": 240.0,
+    "min": 15.0,
+    "path": "performance.fpsCap"
+  },
+  {
+    "default": 30.0,
+    "integer": false,
+    "max": 3600.0,
+    "min": 2.0,
+    "path": "performance.deepIdleAfterS"
+  },
+  {
+    "default": 0.0,
+    "integer": false,
+    "max": 16384.0,
+    "min": -16384.0,
+    "path": "overlay.anchor.offsetDip.0"
+  },
+  {
+    "default": -24.0,
+    "integer": false,
+    "max": 16384.0,
+    "min": -16384.0,
+    "path": "overlay.anchor.offsetDip.1"
+  },
+  {
+    "default": 720.0,
+    "integer": false,
+    "max": 16384.0,
+    "min": 48.0,
+    "path": "overlay.anchor.sizeDip.0"
+  },
+  {
+    "default": 160.0,
+    "integer": false,
+    "max": 16384.0,
+    "min": 16.0,
+    "path": "overlay.anchor.sizeDip.1"
+  }
+]

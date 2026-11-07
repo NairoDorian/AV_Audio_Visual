@@ -4,11 +4,13 @@
 //! A failure before step 8 may print and exit. A failure after a full-desktop window exists must
 //! use the panic/cleanup path.
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 use crate::cli::CliArgs;
+use crate::config_store::{self, ConfigStore};
 use crate::paths::DataDirs;
 use crate::{commands, identity, logging, panic, preflight};
 
@@ -97,12 +99,29 @@ pub fn run() {
         std::process::exit(2);
     }
 
-    // 6. Config (migrate -> self-heal -> sanitize -> normalize) arrives with A5.
+    // 6. Config: migrate -> self-heal -> sanitize -> normalize, backed up if anything was lost.
     enter(Step::Config);
+    let store = match ConfigStore::open(&dirs.root) {
+        Ok((store, report)) => {
+            config_store::log_report(&report);
+            Arc::new(store)
+        }
+        Err(err) => {
+            let why = format!("cannot start the config saver: {err}");
+            tracing::error!(target: "av_app::startup", "{why}");
+            eprintln!("{why}");
+            std::process::exit(1);
+        }
+    };
 
-    let result = tauri::Builder::default()
+    let app = tauri::Builder::default()
         .runtime(tauri_runtime_wry::Wry::default())
-        .invoke_handler(tauri::generate_handler![commands::get_app_info])
+        .manage(store.clone())
+        .invoke_handler(tauri::generate_handler![
+            commands::get_app_info,
+            commands::get_config,
+            commands::patch_config
+        ])
         .setup(move |app| {
             // 7. Let the panic hook reach the app.
             enter(Step::RegisterApp);
@@ -118,12 +137,23 @@ pub fn run() {
             tracing::info!(target: "av_app::startup", "startup complete");
             Ok(())
         })
-        .run(context);
+        .build(context);
 
-    if let Err(err) = result {
-        tracing::error!(target: "av_app::startup", "tauri exited with an error: {err}");
-        std::process::exit(1);
-    }
+    let app = match app {
+        Ok(app) => app,
+        Err(err) => {
+            tracing::error!(target: "av_app::startup", "tauri failed to start: {err}");
+            store.flush();
+            std::process::exit(1);
+        }
+    };
+    app.run(move |_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            // Shutdown order (blueprint 4.3) ends with flushing config.
+            store.flush();
+            tracing::info!(target: "av_app::startup", "exit");
+        }
+    });
 }
 
 fn create_studio(app: &mut tauri::App, visible: bool) -> tauri::Result<()> {

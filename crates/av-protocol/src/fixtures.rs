@@ -256,6 +256,46 @@ pub fn manifest(cases: &[Case]) -> String {
     s
 }
 
+/// Settings parity fixtures: defaults and the numeric limit tables for `AppConfig` and `Scene`,
+/// written to `test/fixtures/settings/`. `test/settings.parity.test.ts` checks that every limit
+/// names a real field of the defaults and that every default is inside its range; the Studio's
+/// settings store reads the same shapes (blueprint section 7).
+pub fn settings_files() -> Vec<(&'static str, String)> {
+    use crate::pipeline::{Limit, Versioned, to_text};
+
+    fn limits<T: Versioned>(rows: &[Limit<T>]) -> String {
+        let d = T::default();
+        let rows: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|l| {
+                serde_json::json!({
+                    "path": l.path,
+                    "min": l.min,
+                    "max": l.max,
+                    "integer": l.integer,
+                    "default": (l.get)(&d),
+                })
+            })
+            .collect();
+        let mut s = serde_json::to_string_pretty(&rows).expect("limits serialize");
+        s.push('\n');
+        s
+    }
+
+    vec![
+        (
+            "config.defaults.json",
+            to_text(&crate::config::AppConfig::default()),
+        ),
+        ("config.limits.json", limits(crate::config::LIMITS)),
+        (
+            "scene.defaults.json",
+            to_text(&crate::scene::Scene::default()),
+        ),
+        ("scene.limits.json", limits(crate::scene::LIMITS)),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

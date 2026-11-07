@@ -5,6 +5,7 @@
 
 mod cli;
 mod commands;
+mod config_store;
 mod identity;
 mod logging;
 mod panic;

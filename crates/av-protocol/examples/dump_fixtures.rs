@@ -1,22 +1,37 @@
-//! Writes the wire fixtures: `cargo run -p av-protocol --example dump_fixtures -- <dir>`.
-//! Run through `bun run fixtures`, which passes `test/fixtures/wire`.
+//! Writes every cross-language fixture:
+//! `cargo run -p av-protocol --example dump_fixtures -- <test/fixtures>`.
+//! Run through `bun run fixtures`.
 
 use std::path::PathBuf;
 
 fn main() -> std::io::Result<()> {
-    let dir = std::env::args()
+    let root = std::env::args()
         .nth(1)
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("test/fixtures/wire"));
-    std::fs::create_dir_all(&dir)?;
+        .unwrap_or_else(|| PathBuf::from("test/fixtures"));
+
+    let wire = root.join("wire");
+    std::fs::create_dir_all(&wire)?;
     let cases = av_protocol::fixtures::cases();
     for case in &cases {
-        std::fs::write(dir.join(format!("{}.bin", case.name)), &case.bytes)?;
+        std::fs::write(wire.join(format!("{}.bin", case.name)), &case.bytes)?;
     }
     std::fs::write(
-        dir.join("manifest.json"),
+        wire.join("manifest.json"),
         av_protocol::fixtures::manifest(&cases),
     )?;
-    println!("wrote {} wire fixtures to {}", cases.len(), dir.display());
+
+    let settings = root.join("settings");
+    std::fs::create_dir_all(&settings)?;
+    let files = av_protocol::fixtures::settings_files();
+    for (name, text) in &files {
+        std::fs::write(settings.join(name), text)?;
+    }
+    println!(
+        "wrote {} wire and {} settings fixtures under {}",
+        cases.len(),
+        files.len(),
+        root.display()
+    );
     Ok(())
 }

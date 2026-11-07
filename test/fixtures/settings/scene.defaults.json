@@ -1,0 +1,14 @@
+{
+  "formatVersion": 1,
+  "id": "bars",
+  "name": "Bars",
+  "style": "bars",
+  "barWidth": 0.7,
+  "cornerRadius": 1.0,
+  "opacity": 1.0,
+  "palette": [
+    "#3d6bff",
+    "#8a5cff",
+    "#ff5ca8"
+  ]
+}
