@@ -169,9 +169,8 @@ impl<'a> F32Le<'a> {
         Some(f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
     }
     pub fn iter(&self) -> impl Iterator<Item = f32> + 'a {
-        self.0
-            .chunks_exact(4)
-            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        let (chunks, _) = self.0.as_chunks::<4>();
+        chunks.iter().map(|b| f32::from_le_bytes(*b))
     }
     /// Copies into `out` (which must have `len()` elements).
     pub fn copy_to(&self, out: &mut [f32]) {

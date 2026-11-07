@@ -212,7 +212,7 @@ impl FrameHeader {
         if self.flags.contains(FrameFlags::BINS_PRESENT)
             && !self.flags.contains(FrameFlags::HEADER_ONLY)
             && (self.fft_size == 0
-                || self.fft_size % 2 != 0
+                || !self.fft_size.is_multiple_of(2)
                 || self.fft_size as usize > MAX_FFT_SIZE)
         {
             return Err(WireError::InvalidFftSize(self.fft_size));
