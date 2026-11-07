@@ -25,7 +25,8 @@ What is implemented versus planned, kept truthful (AGENTS.md section 8). Steps r
 | :-- | :-- |
 | Layered FFT (1-6 layers, zero-padded, 1/2^(k-1) scaled, averaged) | Done: default preset (4 layers, zero-pad 2); gates and timings recorded. Optimizations (decimation, per-layer FFT size) open |
 | FFT CHOP integration (Kaiser, warps, ITU-R 468, EQ, aggregation, output modes) | Kaiser and zero-padding done; warps, ITU-R 468, EQ, aggregation, output modes planned |
-| Concentric spectrum view (ZER0 circular scope) | Done in the Studio preview (`concentric` built-in scene); native wgpu version with A9 |
+| Concentric spectrum view (ZER0 circular scope) | First version in the Studio preview (`concentric` scene). Full component set (outer/inner lines, outer/inner/spanning bars, bar inset, high bar counts) planned: docs/super-fft.md 3 |
+| Raw audio scope (tapered one-frame trace, linear and inside the ring with mirrors and rotational copies) | Planned: docs/super-fft.md 4; needs wire v2 (section 5) |
 
 ## Phase 0.5, Track B (platform spikes)
 

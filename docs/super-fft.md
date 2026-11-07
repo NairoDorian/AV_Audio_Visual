@@ -154,33 +154,120 @@ the generated parameter layout (study section 9).
 
 ## 3. Concentric spectrum view
 
-From ZER0's overlay scope (`Handy_V2 src/lib/overlayScope.ts:166-213`,
-`src/overlay/OverlayScope.tsx:532-657`, MIT). Concept, re-implemented for the Studio preview now
-and for the wgpu renderer later:
+Product owner's specification (2026-11-07), building on ZER0's circular scope
+(`Handy_V2 src/lib/overlayScope.ts:166-213`, `src/overlay/OverlayScope.tsx:532-657`, MIT;
+concept only). Drawn by the Studio preview first, then natively by the wgpu renderer (A9).
 
-1. **Pool** the bars to the display count `n` with a per-bucket **peak** (fewer bins = chunkier,
-   never a lossy decimation).
-2. **Floor, then gain**: values below the floor are zero; the rest are rescaled and multiplied
-   by the gain (a fixed display multiplier, never dynamic).
-3. **Cross-sum signal** over `2n` points: `C[k] = (s[j] + s[n-1-j]) / 2` with `j = k mod n`.
-   It is a palindrome repeated twice around the ring, so the figure is mirror-symmetric.
-4. **Angles** `theta_k = (k + 0.5) / 2n * 2*pi`, seam at 3 o'clock.
-5. **Two branches** at radius `S * (1 + C)` and `S * (1 - C)`: either radial bars from inner to
-   outer radius with alpha `0.35 + 0.65 C`, or two closed loops (inner dimmer, optional).
+### 3.1 The signal
 
-In AV_AudioVisual it becomes `VisualStyle::Concentric` in `Scene` (with `ringBins`, `ringFloor`,
-`ringGain`, `ringBars`, `ringInner`), drawn by the Studio preview first and by the native wgpu
-renderer when it exists (an instanced radial-bar pipeline sharing the bar geometry path).
+1. **Spectrum in.** The ring reads a high-resolution display spectrum, not just the bars: the
+   layered FFT gives thousands of bins, so the ring can carry a very high number of bars
+   (hundreds to a few thousand). It is produced by the CHOP-style warp (section 2: log/mel warp
+   of all FFT bins to `M` output points with interpolation, `M` up to 4,096) and carried by
+   wire v2 (section 5). Until then the ring uses the bars (max 128).
+2. **Pool, floor, gain.** Peak-pool to the display count `n`; values under the floor draw
+   nothing; the rest are rescaled and multiplied by a fixed gain.
+3. **Mirror and add.** The spectrum is added to its own index-reversed copy:
+   `P[j] = (s[j] + s[n-1-j]) / 2`. The result is perfectly symmetric (a palindrome).
+4. **Half a circle.** `P` is spread over **half the circle**, the top half; the bottom half is
+   its mirror image, so the figure is symmetric about both axes. The seams (where the two
+   halves meet) are at 3 and 9 o'clock. Equivalent form used in code: `C[k] = P[k mod n]` over
+   `2n` points at angles `(k + 0.5) / 2n * 2*pi`.
+
+### 3.2 The components (each a toggle, combinable)
+
+With base radius `R` (the ring's perimeter) and the signal `C` in 0..1:
+
+| Component | Geometry |
+| :-- | :-- |
+| **Outer line** | Closed line at radius `R (1 + C)`: the FFT going outward, away from the centre. |
+| **Inner line** | Closed line at radius `R (1 - C)`: the FFT going inward, towards the centre. |
+| **Outer bars** | Radial bars from the perimeter `R` out to the outer line. |
+| **Inner bars** | Radial bars from the perimeter `R` in to the inner line. |
+| **Spanning bars** | Radial bars from the inner line to the outer line, through the perimeter. |
+| **Base circle** | The perimeter itself, faint. |
+
+- **Bar inset (gap).** Bars can be scaled slightly shorter than the lines (`barScale` < 1, for
+  example 0.92 of the distance from the perimeter), leaving a small gap so the outer and inner
+  lines read as the **outline** of the bars.
+- **Bar count.** Up to the display spectrum's resolution; bar width follows the arc length
+  (`2 pi R / 2n` minus a spacing), so thousands of bars stay legible as a fine texture.
+- Style per component: colour from the palette gradient (radial), line width, bar alpha
+  following the value (`0.35 + 0.65 C`, ZER0's rule) or constant.
+
+### 3.3 Settings (`Scene.ring`)
+
+`bins` (display count `n`), `floor`, `gain`, `radius`, and the component toggles
+`outerLine`, `innerLine`, `outerBars`, `innerBars`, `spanBars`, `baseCircle`, plus
+`barScale` (0.5-1.0) and `barSpacing`. The current `bars`/`inner` booleans migrate to these
+(scene format v2, with a migration test).
 
 ---
 
-## 4. Order of work
+## 4. Raw audio scope
 
-1. ADR-020 and this plan (done with this commit).
-2. `av-dsp`: layered analyzer, Kaiser window, exact `ENBW_eff`, gates in section 1.6, bench.
-3. `AppConfig`: `layers`, `zeroPad`, `layered` preset as the default; Studio controls.
-4. Studio preview: concentric style; `Scene` gains `concentric`.
-5. CHOP features in the order of section 2's "next" items (warps, ITU-R 468, peak aggregation,
-   EQ, output modes), each with goldens.
-6. Optimizations of section 1.5 behind measured A/B results.
-7. wgpu renderer (A9) draws bars and the concentric style natively.
+The raw audio signal is the second ingredient of the concentric view, and on its own it is the
+natural content for the taskbar strip (a linear scope).
+
+### 4.1 The signal
+
+1. **Window length.** The newest `L = sample_rate / display_fps` mono samples: 800 samples at
+   48 kHz and 60 fps (one display frame of audio).
+2. **Taper.** Multiply by a half-sine of the same length, `w[i] = sin(pi * i / (L - 1))` (0 -> 1
+   -> 0), so the trace fades in and out at both ends instead of jumping.
+3. **Gain.** A display gain (fixed, optionally auto) scales the amplitude.
+
+The engine keeps the newest raw mono samples with every frame (wire v2 waveform block, up to
+4,096 samples); the consumer takes the newest `L` for its own frame rate and applies the taper,
+so a 60 Hz and a 144 Hz surface each get exactly one frame of audio.
+
+### 4.2 Linear scope
+
+Left to right across the surface, centred vertically: the taskbar strip's content, and an
+optional layer in the bar views.
+
+### 4.3 Inside the ring
+
+The trace is drawn inside the inner circle (spanning its diameter, clipped to it). Layers
+combine; each toggle doubles what is shown:
+
+| Control | Effect |
+| :-- | :-- |
+| (base) | One trace, horizontal, left to right through the centre. |
+| **Horizontal mirror** (toggle) | Adds a copy drawn right to left (time-reversed), superposed. |
+| **Vertical mirror** (toggle) | Adds a copy of every trace flipped across the horizontal axis (amplitude inverted). |
+| **Rotational copies** (slider, 1-8, default 1) | Duplicates everything `k` times, copy `i` rotated by `i * 180 / k` degrees: `k = 2` adds the vertical traces (bottom to top, and top to bottom when the horizontal mirror is on), `k = 3` gives copies every 60 degrees, and so on around the circle. |
+
+Traces shown = 1 x (2 if horizontal mirror) x (2 if vertical mirror) x `k`.
+
+---
+
+## 5. Wire v2 (needed by sections 3 and 4)
+
+Wire v1 carries bars, optional raw FFT bins (`fft_size / 2 + 1`, max 4,097) and a reserved
+feature block. Sections 3 and 4 need two new optional blocks:
+
+- **Display spectrum**: `M` warped points (up to 4,096) for high-count ring bars.
+- **Waveform**: the newest `W` raw mono samples (up to 4,096).
+
+Plan: wire version 2 sets flag bit 6 `EXTENDED`; a two-word extension header
+(`display_count`, `waveform_count`) follows the 8-word header; payload order is bars, bins,
+features, display spectrum, waveform. v2 decoders keep reading v1 frames; the slot ring grows
+the two blocks (preallocated); Rust/TS parity fixtures cover every combination. The renderer
+reads the slot ring in place as before.
+
+---
+
+## 6. Order of work
+
+1. ADR-020 and this plan. Done.
+2. `av-dsp`: layered analyzer, Kaiser window, exact `ENBW_eff`, gates, timings. Done.
+3. `AppConfig`: `layers`, `zeroPad`, `layered` preset as the default; Studio controls. Done.
+4. Studio preview: `concentric` built-in scene (outer/inner lines or spanning bars). Done.
+5. Wire v2 + slot ring blocks: waveform and display spectrum (section 5), with parity fixtures.
+6. Concentric components and bar inset (section 3.2), scene format v2 with migration.
+7. Raw audio scope: taper, linear scope, ring traces with the three controls (section 4).
+8. CHOP features (warps first: they also produce the display spectrum), ITU-R 468, peak
+   aggregation, EQ, output modes, each with goldens.
+9. Optimizations of section 1.5 behind measured A/B results.
+10. wgpu renderer (A9): bars, concentric ring and scope traces natively.
