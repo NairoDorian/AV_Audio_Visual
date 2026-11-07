@@ -1,0 +1,11 @@
+{
+  "$comment": "Single source of product identity. Mirrored into package.json, Cargo manifests and tauri.conf.json by `bun run meta:sync`; `bun run meta:check` fails on drift. Never hand-edit the mirrors.",
+  "name": "AV_AudioVisual",
+  "slug": "av-audiovisual",
+  "identifier": "com.nairodorian.av-audiovisual",
+  "version": "0.0.1",
+  "description": "Cross-platform audio visualizer for the desktop background, the taskbar and a floating overlay.",
+  "publisher": "NairoDorian",
+  "repository": "https://github.com/NairoDorian/AV_Audio_Visual",
+  "license": "MIT OR Apache-2.0"
+}

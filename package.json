@@ -1,0 +1,30 @@
+{
+  "name": "av-audiovisual",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "tauri": "tauri",
+    "build": "vite build",
+    "typecheck": "tsc -b",
+    "lint": "oxlint src scripts test",
+    "format": "prettier --write . && cargo fmt --all",
+    "format:check": "prettier --check . && cargo fmt --all -- --check",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@solidjs/web": "2.0.0-rc.21",
+    "@tauri-apps/api": "3.0.0-alpha.3",
+    "solid-js": "2.0.0-rc.21"
+  },
+  "devDependencies": {
+    "@solidjs/vite-plugin": "3.0.0-next.57",
+    "@tauri-apps/cli": "3.0.0-alpha.6",
+    "bun-types": "1.4.4-canary.20261107T140830",
+    "oxlint": "1.92.0",
+    "prettier": "4.0.0-alpha.13",
+    "typescript": "7.1.0-dev.20261107.1",
+    "vite": "8.3.6"
+  }
+}

@@ -1,0 +1,16 @@
+[package]
+name = "av-protocol"
+description = "Shared types and pure functions: config, scenes, frame header, wire format, ids, errors."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+
+[lints]
+workspace = true

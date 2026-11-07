@@ -1,0 +1,11 @@
+references/
+target/
+dist/
+node_modules/
+evidence/
+bun.lock
+Cargo.lock
+src/lib/bindings.ts
+src-tauri/gen/
+test/fixtures/
+*.md

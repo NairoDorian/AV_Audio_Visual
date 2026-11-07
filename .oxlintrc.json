@@ -1,0 +1,8 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": { "correctness": "error", "suspicious": "warn" },
+  "rules": {
+    "no-console": ["warn", { "allow": ["warn", "error", "info"] }]
+  },
+  "ignorePatterns": ["dist", "node_modules", "src/lib/bindings.ts"]
+}

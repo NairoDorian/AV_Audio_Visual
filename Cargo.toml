@@ -1,0 +1,64 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/av-protocol",
+  "crates/av-dsp",
+  "crates/av-audio",
+  "crates/av-engine",
+  "crates/av-render",
+  "crates/av-platform",
+  "src-tauri",
+]
+# Spikes are throwaway and must never be importable by product code.
+exclude = ["spikes"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+authors = ["NairoDorian"]
+repository = "https://github.com/NairoDorian/AV_Audio_Visual"
+publish = false
+
+# Every version lives here; member crates use `workspace = true`.
+[workspace.dependencies]
+# Internal crates. The allowed edges are checked (blueprint section 3.1).
+av-protocol = { path = "crates/av-protocol" }
+av-dsp = { path = "crates/av-dsp" }
+av-audio = { path = "crates/av-audio" }
+av-engine = { path = "crates/av-engine" }
+av-render = { path = "crates/av-render" }
+av-platform = { path = "crates/av-platform" }
+
+# Tauri 3 family: moved as one transaction by `bun run update-deps`. Members
+# carry different numbers; the set is what `tauri`'s own requirements resolve to.
+tauri = { version = "=3.0.0-alpha.6" }
+tauri-runtime-wry = { version = "=3.0.0-alpha.6" }
+tauri-build = { version = "=3.0.0-alpha.4", features = [] }
+
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
+tracing-appender = "0.2.5"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+
+[profile.dev.package."*"]
+# Dependencies (wgpu, realfft) at -O2 so `bun run tauri dev` and DSP timings are usable.
+opt-level = 2
+
+[profile.release]
+# ADR-001: unwind so Drop guards and window cleanup run on panic.
+panic = "unwind"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"

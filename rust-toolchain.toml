@@ -1,0 +1,5 @@
+# The Rust toolchain tracks the newest stable release: the one documented
+# exception to the always-newest policy (README section 11.2).
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
