@@ -7,6 +7,7 @@
 pub mod capture;
 pub mod file;
 pub mod ring;
+pub mod synth;
 
 pub use capture::{CaptureBackend, CaptureError, CaptureFormat, CaptureState};
 pub use file::{DecodedAudio, FileSource, decode_file};

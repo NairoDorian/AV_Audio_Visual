@@ -66,6 +66,13 @@ todo = "warn"
 # Dependencies (wgpu, realfft) at -O2 so `bun run tauri dev` and DSP timings are usable.
 opt-level = 2
 
+# The analysis path runs at -O2 in dev too, so Studio timings are not debug-build artefacts.
+[profile.dev.package.av-dsp]
+opt-level = 2
+
+[profile.dev.package.av-engine]
+opt-level = 2
+
 [profile.release]
 # ADR-001: unwind so Drop guards and window cleanup run on panic.
 panic = "unwind"

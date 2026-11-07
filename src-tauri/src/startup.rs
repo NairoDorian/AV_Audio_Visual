@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
+use crate::audio::{AudioService, SourceRequest};
 use crate::cli::CliArgs;
 use crate::config_store::{self, ConfigStore};
 use crate::paths::DataDirs;
@@ -114,13 +115,21 @@ pub fn run() {
         }
     };
 
+    let audio = Arc::new(AudioService::default());
+    let (store_for_setup, audio_for_setup) = (store.clone(), audio.clone());
+
     let app = tauri::Builder::default()
         .runtime(tauri_runtime_wry::Wry::default())
         .manage(store.clone())
+        .manage(audio.clone())
         .invoke_handler(tauri::generate_handler![
             commands::get_app_info,
             commands::get_config,
-            commands::patch_config
+            commands::patch_config,
+            commands::start_source,
+            commands::stop_source,
+            commands::get_audio_status,
+            commands::get_frame
         ])
         .setup(move |app| {
             // 7. Let the panic hook reach the app.
@@ -134,6 +143,12 @@ pub fn run() {
             // 9-10. Visualizer hosts and the capture/analysis/render pipeline: Phase 1B.
             enter(Step::HostsHidden);
             enter(Step::Pipeline);
+            if cli.demo {
+                let analysis = store_for_setup.get().analysis;
+                if let Err(e) = audio_for_setup.start(SourceRequest::Demo, &analysis) {
+                    tracing::warn!(target: "av_app::startup", "demo source failed: {e}");
+                }
+            }
             tracing::info!(target: "av_app::startup", "startup complete");
             Ok(())
         })
@@ -149,7 +164,8 @@ pub fn run() {
     };
     app.run(move |_handle, event| {
         if let tauri::RunEvent::Exit = event {
-            // Shutdown order (blueprint 4.3) ends with flushing config.
+            // Shutdown order (blueprint 4.3): stop capture and analysis, then flush config.
+            audio.stop();
             store.flush();
             tracing::info!(target: "av_app::startup", "exit");
         }

@@ -112,3 +112,86 @@ h1 {
   color: var(--muted);
   font: 12px var(--mono);
 }
+
+.error {
+  border-color: #d64545;
+  color: #d64545;
+}
+
+.preview-card {
+  padding: 0;
+  overflow: hidden;
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+}
+
+.preview-card > .muted {
+  padding: 16px;
+}
+
+.preview {
+  display: block;
+  width: 100%;
+  height: 260px;
+}
+
+.form {
+  display: grid;
+  gap: 12px;
+}
+
+.form label {
+  display: grid;
+  grid-template-columns: 120px 1fr 48px;
+  align-items: center;
+  gap: 12px;
+}
+
+.form label.check {
+  grid-template-columns: auto 1fr;
+}
+
+.form output {
+  font-family: var(--mono);
+  text-align: right;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+}
+
+.grow {
+  flex: 1;
+}
+
+.small {
+  font-size: 12px;
+}
+
+button,
+select,
+input[type="text"] {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}

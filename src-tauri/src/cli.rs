@@ -6,6 +6,8 @@
 pub struct CliArgs {
     /// Start without showing the Studio window (autostart, later phases).
     pub hidden: bool,
+    /// Start the built-in demo track at startup (manual checks, screenshots).
+    pub demo: bool,
     /// Arguments the app did not recognise; logged once, never fatal.
     pub unknown: Vec<String>,
 }
@@ -16,6 +18,7 @@ impl CliArgs {
         for arg in args.into_iter().skip(1) {
             match arg.as_str() {
                 "--hidden" => out.hidden = true,
+                "--demo" => out.demo = true,
                 _ => out.unknown.push(arg),
             }
         }
@@ -38,8 +41,8 @@ mod tests {
 
     #[test]
     fn reads_hidden_and_keeps_unknown_args() {
-        let a = parse(&["av-app", "--hidden", "--what"]);
-        assert!(a.hidden);
+        let a = parse(&["av-app", "--hidden", "--demo", "--what"]);
+        assert!(a.hidden && a.demo);
         assert_eq!(a.unknown, vec!["--what".to_string()]);
     }
 }

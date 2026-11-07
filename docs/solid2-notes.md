@@ -11,7 +11,7 @@ Recorded during Track A step A1 so Studio code is not written from Solid 1 memor
 | `<For>` (default, keyed) | child is `(item: T, index: Accessor<number>)`: the **item is a plain value** | `item()` |
 | `<For keyed={false}>` | child is `(item: Accessor<T>, index: number)` | |
 | `<Show>` with a callback | `{(v) => v().field}`: the narrowed value is an accessor | |
-| After mount | `onSettled(fn)` | `onMount` |
+| After mount | `onSettled(fn)`; `fn` may return a cleanup that runs on owner disposal | `onMount` + `onCleanup` inside it |
 | Flow components | `For`, `Show`, `Switch`, `Match`, `Repeat`, `Errored`, `Loading` from `solid-js` | `ErrorBoundary`, `Suspense`, `Index` |
 
 `solid-js` and `@solidjs/web` must be the identical version (lockstep group in the updater).
