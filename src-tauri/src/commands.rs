@@ -37,6 +37,12 @@ pub fn get_app_info(app: tauri::AppHandle) -> AppInfo {
     }
 }
 
+/// The built-in defaults (the Studio shows them in the info bubbles and resets to them).
+#[tauri::command]
+pub fn get_defaults() -> AppConfig {
+    AppConfig::default()
+}
+
 #[tauri::command]
 pub fn get_config(store: tauri::State<'_, Arc<ConfigStore>>) -> AppConfig {
     store.get()

@@ -127,6 +127,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_app_info,
             commands::get_config,
+            commands::get_defaults,
             commands::patch_config,
             commands::start_source,
             commands::stop_source,

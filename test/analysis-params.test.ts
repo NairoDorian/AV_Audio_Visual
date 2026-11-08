@@ -16,6 +16,7 @@ import {
 } from "../src/features/analysis/params";
 import type { AnalysisConfig } from "../src/lib/ipc";
 import { poolPeak } from "../src/lib/render/pool";
+import { ANALYSIS_HELP } from "../src/features/analysis/help";
 
 const DIR = join(import.meta.dirname, "fixtures", "settings");
 const read = (name: string) => JSON.parse(readFileSync(join(DIR, name), "utf8"));
@@ -113,4 +114,14 @@ test("peak pooling keeps narrow partials and repeats when stretching", () => {
   expect(Math.max(...out)).toBeCloseTo(0.9, 6);
   const wide = poolPeak(Float32Array.of(0.1, 0.5), new Float32Array(4));
   expect([...wide]).toEqual([...Float32Array.of(0.1, 0.1, 0.5, 0.5)]);
+});
+
+test("every setting has an info bubble and every bubble names a setting", () => {
+  const keys = new Set(all.map((p) => p.key));
+  for (const k of keys) {
+    const h = ANALYSIS_HELP[k];
+    expect(h, k).toBeDefined();
+    expect(h!.text.length, k).toBeGreaterThan(20);
+  }
+  for (const k of Object.keys(ANALYSIS_HELP)) expect(keys.has(k), k).toBe(true);
 });

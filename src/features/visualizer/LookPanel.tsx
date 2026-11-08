@@ -1,11 +1,14 @@
-// The concentric components and the raw-audio scope (docs/super-fft.md sections 3 and 4), as
-// controls over the preview's copy of the active scene. Preview-only until user scene files
-// exist (Phase 3): nothing here is persisted.
+// The concentric components, the raw-audio scope and the colours (docs/super-fft.md sections 3
+// and 4), as controls over the preview's copy of the active scene, each with an info bubble.
+// Preview-only until user scene files exist (Phase 3): nothing here is persisted.
 import { For, Show } from "solid-js";
+import InfoTip from "../../components/InfoTip";
 import type { Scene, SceneColors } from "../../lib/ipc";
+import { LOOK_HELP } from "./help";
 
 type RingToggle = "outerLine" | "innerLine" | "outerBars" | "innerBars" | "spanBars" | "baseCircle";
 type ScopeToggle = "enabled" | "horizontalMirror" | "verticalMirror";
+type ColorKey = keyof SceneColors;
 
 const RING_TOGGLES: ReadonlyArray<[RingToggle, string]> = [
   ["outerLine", "Outer line"],
@@ -16,7 +19,11 @@ const RING_TOGGLES: ReadonlyArray<[RingToggle, string]> = [
   ["baseCircle", "Base circle"],
 ];
 
-type ColorKey = keyof SceneColors;
+const SCOPE_TOGGLES: ReadonlyArray<[ScopeToggle, string, string]> = [
+  ["enabled", "Raw audio scope", "scopeEnabled"],
+  ["horizontalMirror", "Horizontal mirror", "horizontalMirror"],
+  ["verticalMirror", "Vertical mirror", "verticalMirror"],
+];
 
 /** Which colours apply to a style. */
 const RING_COLORS: ReadonlyArray<[ColorKey, string]> = [
@@ -36,11 +43,40 @@ const BAR_COLORS: ReadonlyArray<[ColorKey, string]> = [
 /** `#rrggbb` for the colour input (drops an alpha byte). */
 const rgb = (c: string | null, fallback: string) => (c ?? fallback).slice(0, 7);
 
-const SCOPE_TOGGLES: ReadonlyArray<[ScopeToggle, string]> = [
-  ["enabled", "Raw audio scope"],
-  ["horizontalMirror", "Horizontal mirror (right to left copy)"],
-  ["verticalMirror", "Vertical mirror (inverted copy)"],
-];
+/** A labelled slider with its info bubble and value readout. */
+function Slider(props: {
+  label: string;
+  help: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  digits: number;
+  onInput: (v: number) => void;
+}) {
+  return (
+    <div class="param">
+      <span class="param-label">
+        <span>{props.label}</span>
+        <InfoTip
+          title={props.label}
+          help={LOOK_HELP[props.help]!}
+          facts={[`Range: ${props.min} to ${props.max}`]}
+        />
+      </span>
+      <input
+        type="range"
+        aria-label={props.label}
+        min={props.min}
+        max={props.max}
+        step={props.step}
+        value={props.value}
+        onInput={(e) => props.onInput(+e.currentTarget.value)}
+      />
+      <output class="param-value">{props.value.toFixed(props.digits)}</output>
+    </div>
+  );
+}
 
 /** Edits arrive as updaters over the latest scene, so two edits in one tick both land. */
 export default function LookPanel(props: {
@@ -62,111 +98,116 @@ export default function LookPanel(props: {
         : (props.scene.palette[1] ?? props.scene.palette[0] ?? "#8a5cff");
 
   return (
-    <section class="card form look">
+    <section class="card look">
       <Show when={concentric()}>
+        <h3 class="group-title">Ring</h3>
         <div class="toggles">
           <For each={RING_TOGGLES}>
             {([key, label]) => (
-              <label class="check">
-                <input
-                  type="checkbox"
-                  checked={props.scene.ring[key]}
-                  onChange={(e) => ring({ [key]: e.currentTarget.checked })}
-                />
-                <span>{label}</span>
-              </label>
+              <span class="toggle">
+                <label class="check">
+                  <input
+                    type="checkbox"
+                    checked={props.scene.ring[key]}
+                    onChange={(e) => ring({ [key]: e.currentTarget.checked })}
+                  />
+                  <span>{label}</span>
+                </label>
+                <InfoTip title={label} help={LOOK_HELP[key]!} />
+              </span>
             )}
           </For>
         </div>
-        <label>
-          <span>Bar scale</span>
-          <input
-            type="range"
-            min="0.5"
-            max="1"
-            step="0.01"
+        <div class="params">
+          <Slider
+            label="Bar scale"
+            help="barScale"
+            min={0.5}
+            max={1}
+            step={0.01}
+            digits={2}
             value={props.scene.ring.barScale}
-            onInput={(e) => ring({ barScale: +e.currentTarget.value })}
+            onInput={(v) => ring({ barScale: v })}
           />
-          <output>{props.scene.ring.barScale.toFixed(2)}</output>
-        </label>
-        <label>
-          <span>Ring floor</span>
-          <input
-            type="range"
-            min="0"
-            max="0.9"
-            step="0.01"
+          <Slider
+            label="Ring floor"
+            help="ringFloor"
+            min={0}
+            max={0.9}
+            step={0.01}
+            digits={2}
             value={props.scene.ring.floor}
-            onInput={(e) => ring({ floor: +e.currentTarget.value })}
+            onInput={(v) => ring({ floor: v })}
           />
-          <output>{props.scene.ring.floor.toFixed(2)}</output>
-        </label>
-        <label>
-          <span>Ring gain</span>
-          <input
-            type="range"
-            min="0.05"
-            max="8"
-            step="0.05"
+          <Slider
+            label="Ring gain"
+            help="ringGain"
+            min={0.05}
+            max={8}
+            step={0.05}
+            digits={2}
             value={props.scene.ring.gain}
-            onInput={(e) => ring({ gain: +e.currentTarget.value })}
+            onInput={(v) => ring({ gain: v })}
           />
-          <output>{props.scene.ring.gain.toFixed(2)}</output>
-        </label>
+        </div>
       </Show>
+
+      <h3 class="group-title">Raw audio</h3>
       <div class="toggles">
         <For each={SCOPE_TOGGLES}>
-          {([key, label]) => (
-            <label class="check">
-              <input
-                type="checkbox"
-                checked={props.scene.scope[key]}
-                onChange={(e) => scope({ [key]: e.currentTarget.checked })}
-              />
-              <span>{label}</span>
-            </label>
+          {([key, label, help]) => (
+            <span class="toggle">
+              <label class="check">
+                <input
+                  type="checkbox"
+                  checked={props.scene.scope[key]}
+                  onChange={(e) => scope({ [key]: e.currentTarget.checked })}
+                />
+                <span>{label}</span>
+              </label>
+              <InfoTip title={label} help={LOOK_HELP[help]!} />
+            </span>
           )}
         </For>
       </div>
-      <Show when={concentric()}>
-        <label>
-          <span>Rotational copies</span>
-          <input
-            type="range"
-            min="1"
-            max="8"
-            step="1"
+      <div class="params">
+        <Show when={concentric()}>
+          <Slider
+            label="Rotational copies"
+            help="copies"
+            min={1}
+            max={8}
+            step={1}
+            digits={0}
             value={props.scene.scope.copies}
-            onInput={(e) => scope({ copies: +e.currentTarget.value })}
+            onInput={(v) => scope({ copies: v })}
           />
-          <output>{props.scene.scope.copies}</output>
-        </label>
-      </Show>
-      <label>
-        <span>Scope gain</span>
-        <input
-          type="range"
-          min="0.1"
-          max="16"
-          step="0.1"
+        </Show>
+        <Slider
+          label="Scope gain"
+          help="scopeGain"
+          min={0.1}
+          max={16}
+          step={0.1}
+          digits={1}
           value={props.scene.scope.gain}
-          onInput={(e) => scope({ gain: +e.currentTarget.value })}
+          onInput={(v) => scope({ gain: v })}
         />
-        <output>{props.scene.scope.gain.toFixed(1)}</output>
-      </label>
-      <label>
-        <span>Scope size</span>
-        <input
-          type="range"
-          min="0.1"
-          max="1"
-          step="0.01"
+        <Slider
+          label="Scope size"
+          help="scopeSize"
+          min={0.1}
+          max={1}
+          step={0.01}
+          digits={2}
           value={props.scene.scope.size}
-          onInput={(e) => scope({ size: +e.currentTarget.value })}
+          onInput={(v) => scope({ size: v })}
         />
-        <output>{props.scene.scope.size.toFixed(2)}</output>
-      </label>
+      </div>
+
+      <h3 class="group-title">
+        Colours <InfoTip title="Colours" help={LOOK_HELP["colors"]!} />
+      </h3>
       <div class="colors">
         <For each={concentric() ? RING_COLORS : BAR_COLORS}>
           {([key, label]) => (
@@ -193,10 +234,7 @@ export default function LookPanel(props: {
           )}
         </For>
       </div>
-      <p class="muted small">
-        Preview only until scene files: traces = 1 x 2 (horizontal mirror) x 2 (vertical mirror) x
-        copies, copy i rotated by i x 180 / copies degrees.
-      </p>
+      <p class="muted small">Preview only until scenes can be saved as files.</p>
     </section>
   );
 }

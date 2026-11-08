@@ -303,3 +303,124 @@ button.primary {
   border-radius: 4px;
   background: none;
 }
+
+/* Info bubbles (src/components/InfoTip.tsx): a top-layer popover next to a small (i) button. */
+.param-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+button.info {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font:
+    italic 600 11px/16px Georgia,
+    "Times New Roman",
+    serif;
+  cursor: help;
+}
+
+button.info:hover,
+button.info:focus-visible,
+button.info.pinned {
+  color: var(--accent);
+  border-color: var(--accent);
+  outline: none;
+}
+
+.bubble[popover] {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.bubble strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.bubble p {
+  margin: 6px 0 0;
+}
+
+.bubble-label {
+  margin-right: 4px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.bubble-facts {
+  margin: 10px 0 0;
+  padding: 8px 0 0;
+  border-top: 1px solid var(--border);
+  list-style: none;
+  color: var(--muted);
+  font: 12px/1.6 var(--mono);
+}
+
+button.reset {
+  flex: none;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 14px;
+  line-height: 18px;
+}
+
+button.reset:hover {
+  background: var(--accent-soft);
+}
+
+.group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 18px 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.group-title:first-child {
+  margin-top: 0;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.look .toggles {
+  margin-bottom: 10px;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}

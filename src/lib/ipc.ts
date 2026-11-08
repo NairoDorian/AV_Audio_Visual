@@ -205,6 +205,7 @@ export function inTauri(): boolean {
 
 export const getAppInfo = () => invoke<AppInfo>("get_app_info");
 export const getConfig = () => invoke<AppConfig>("get_config");
+export const getDefaults = () => invoke<AppConfig>("get_defaults");
 export const patchConfig = (patch: Record<string, unknown>) =>
   invoke<Applied>("patch_config", { patch });
 export const startSource = (request: SourceRequest) =>

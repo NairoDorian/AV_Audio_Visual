@@ -2,10 +2,27 @@ import { createSignal, For, Show, Match, Switch, onSettled } from "solid-js";
 import Preview from "./features/visualizer/Preview";
 import AnalysisPanel from "./features/analysis/AnalysisPanel";
 import LookPanel from "./features/visualizer/LookPanel";
+import { LOOK_HELP } from "./features/visualizer/help";
+import InfoTip from "./components/InfoTip";
+import { DIAG_HELP } from "./features/diagnostics/help";
+
+/** A readout label with its info bubble. */
+function Dt(props: { label: string }) {
+  const help = () => DIAG_HELP[props.label];
+  return (
+    <dt>
+      <span class="param-label">
+        <span>{props.label}</span>
+        <Show when={help()}>{(h) => <InfoTip title={props.label} help={h()} />}</Show>
+      </span>
+    </dt>
+  );
+}
 import {
   getAppInfo,
   getAudioStatus,
   getConfig,
+  getDefaults,
   inTauri,
   patchConfig,
   startSource,
@@ -50,6 +67,7 @@ export default function App() {
   const [info, setInfo] = createSignal<AppInfo | null>(null);
   const [status, setStatus] = createSignal<AudioStatus | null>(null);
   const [config, setConfig] = createSignal<AppConfig | null>(null);
+  const [defaults, setDefaults] = createSignal<AppConfig | null>(null);
   const [scenes, setScenes] = createSignal<Scene[]>([]);
   const [scene, setScene] = createSignal<Scene | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
@@ -68,6 +86,7 @@ export default function App() {
     }
     getAppInfo().then(setInfo, report);
     getConfig().then(setConfig, report);
+    getDefaults().then(setDefaults, report);
     listScenes().then(setScenes, report);
     getActiveScene().then((s) => {
       setScene(s);
@@ -170,7 +189,10 @@ export default function App() {
                 <>
                   <section class="card form">
                     <label>
-                      <span>Scene</span>
+                      <span class="param-label">
+                        <span>Scene</span>
+                        <InfoTip title="Scene" help={LOOK_HELP["scene"]!} />
+                      </span>
                       <select
                         value={c().scene}
                         onChange={(e) => chooseScene(e.currentTarget.value)}
@@ -180,7 +202,16 @@ export default function App() {
                       <span />
                     </label>
                     <label>
-                      <span>{scene()?.style === "concentric" ? "Ring bins" : "Display bars"}</span>
+                      <span class="param-label">
+                        <span>
+                          {scene()?.style === "concentric" ? "Ring bins" : "Display bars"}
+                        </span>
+                        <InfoTip
+                          title={scene()?.style === "concentric" ? "Ring bins" : "Display bars"}
+                          help={LOOK_HELP["displayCount"]!}
+                          facts={["Range: 4 to 4,096"]}
+                        />
+                      </span>
                       <input
                         type="range"
                         min="0"
@@ -211,6 +242,7 @@ export default function App() {
                   </Show>
                   <AnalysisPanel
                     analysis={c().analysis}
+                    defaults={defaults()?.analysis ?? null}
                     sampleRate={status()?.source?.sampleRate ?? 48_000}
                     onEdit={editAnalysis}
                     onApplied={(applied) => {
@@ -268,19 +300,19 @@ export default function App() {
               <Show when={status()?.source} fallback={<p class="muted">Nothing playing.</p>}>
                 {(src) => (
                   <dl class="kv">
-                    <dt>Source</dt>
+                    <Dt label="Source" />
                     <dd>{src().label}</dd>
-                    <dt>Format</dt>
+                    <Dt label="Format" />
                     <dd>
                       {src().sampleRate} Hz, {src().channels} ch
                     </dd>
-                    <dt>State</dt>
+                    <Dt label="State" />
                     <dd>
                       {status()?.capture === "failed"
                         ? "device lost: pick the source again"
                         : levelLabel(status())}
                     </dd>
-                    <dt>Input peak</dt>
+                    <Dt label="Input peak" />
                     <dd>{fmt(status()?.inputPeakDbfs, 1)} dBFS</dd>
                   </dl>
                 )}
@@ -291,42 +323,42 @@ export default function App() {
           <Match when={section() === "diagnostics"}>
             <section class="card">
               <dl class="kv">
-                <dt>Name</dt>
+                <Dt label="Name" />
                 <dd>{info()?.name ?? "-"}</dd>
-                <dt>Version</dt>
+                <Dt label="Version" />
                 <dd>{info()?.version ?? "-"}</dd>
-                <dt>Platform</dt>
+                <Dt label="Platform" />
                 <dd>
                   {info()?.os ?? "-"} / {info()?.arch ?? "-"} ({info()?.debug ? "debug" : "release"}
                   )
                 </dd>
-                <dt>FFT / hop</dt>
+                <Dt label="FFT / hop" />
                 <dd>
                   {fmt(status()?.fftSize)} / {fmt(status()?.hopSamples)}
                 </dd>
-                <dt>Layers / first window</dt>
+                <Dt label="Layers / first window" />
                 <dd>
                   {fmt(status()?.layers)} / {fmt(status()?.windowSamples)}
                   {status()?.threads && status()!.threads > 1
                     ? ` (${status()!.threads} threads)`
                     : ""}
                 </dd>
-                <dt>Output bins</dt>
+                <Dt label="Output bins" />
                 <dd>{fmt(status()?.outputBins)}</dd>
-                <dt>Peak</dt>
+                <Dt label="Peak" />
                 <dd>{fmt(status()?.peakHz, 1)} Hz</dd>
                 <Show when={status()?.features}>
                   {(f) => (
                     <>
-                      <dt>Centroid / rolloff</dt>
+                      <Dt label="Centroid / rolloff" />
                       <dd>
                         {fmt(f().centroidHz)} / {fmt(f().rolloffHz)} Hz
                       </dd>
-                      <dt>Flatness / flux</dt>
+                      <Dt label="Flatness / flux" />
                       <dd>
                         {fmt(f().flatness, 3)} / {fmt(f().flux, 3)}
                       </dd>
-                      <dt>RMS / bass / mid / high</dt>
+                      <Dt label="RMS / bass / mid / high" />
                       <dd>
                         {fmt(f().rmsDb, 1)} / {fmt(f().bassDb, 1)} / {fmt(f().midDb, 1)} /{" "}
                         {fmt(f().highDb, 1)} dB
@@ -334,21 +366,21 @@ export default function App() {
                     </>
                   )}
                 </Show>
-                <dt>Generation</dt>
+                <Dt label="Generation" />
                 <dd>{fmt(status()?.generation)}</dd>
-                <dt>Frames</dt>
+                <Dt label="Frames" />
                 <dd>{fmt(status()?.frames)}</dd>
-                <dt>DSP avg / max</dt>
+                <Dt label="DSP avg / max" />
                 <dd>
                   {fmt(status()?.dspUsAvg, 1)} / {fmt(status()?.dspUsMax, 1)} us
                 </dd>
-                <dt>Overruns / dropped</dt>
+                <Dt label="Overruns / dropped" />
                 <dd>
                   {fmt(status()?.overruns)} / {fmt(status()?.droppedSamples)}
                 </dd>
-                <dt>Starved hops</dt>
+                <Dt label="Starved hops" />
                 <dd>{fmt(status()?.starvedHops)}</dd>
-                <dt>Clock</dt>
+                <Dt label="Clock" />
                 <dd>{status()?.clock ?? "-"}</dd>
               </dl>
             </section>
