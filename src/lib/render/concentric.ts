@@ -86,6 +86,16 @@ export function barSpans(c: number, s: RingComponents, out: Float64Array): numbe
 
 const spans = new Float64Array(4);
 
+/** The stroke of every component (a colour or the palette gradient). */
+export interface RingStrokes {
+  outerLineStroke: string | CanvasGradient;
+  innerLineStroke: string | CanvasGradient;
+  outerStroke: string | CanvasGradient;
+  innerStroke: string | CanvasGradient;
+  spanStroke: string | CanvasGradient;
+  baseStroke: string | CanvasGradient;
+}
+
 /** Draws the ring into a 2D context. `pooled` comes from `poolRing`. */
 export function drawRing(
   ctx: CanvasRenderingContext2D,
@@ -93,19 +103,18 @@ export function drawRing(
   cx: number,
   cy: number,
   radius: number,
-  style: RingComponents & { fill: string | CanvasGradient; base: string },
+  style: RingComponents & RingStrokes,
 ): void {
   const points = ringPoints(pooled.length);
   if (style.baseCircle) {
     ctx.globalAlpha = 0.3;
-    ctx.strokeStyle = style.base;
+    ctx.strokeStyle = style.baseStroke;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     ctx.stroke();
   }
   ctx.globalAlpha = 1;
-  ctx.strokeStyle = style.fill;
   if (style.outerBars || style.innerBars || style.spanBars) {
     ctx.lineCap = "butt";
     ctx.lineWidth = Math.max(1, (2 * Math.PI * radius) / points - style.barSpacing);
@@ -116,15 +125,21 @@ export function drawRing(
       const co = Math.cos(th);
       const si = Math.sin(th);
       ctx.globalAlpha = 0.35 + 0.65 * c;
-      ctx.beginPath();
       const n = barSpans(c, style, spans);
       for (let i = 0; i < n; i++) {
         const a = radius * spans[2 * i]!;
         const b = radius * spans[2 * i + 1]!;
+        // Spanning bars, or outer (starts at the perimeter going out), or inner.
+        ctx.strokeStyle = style.spanBars
+          ? style.spanStroke
+          : a >= 1 * radius - 1e-9 && b > radius
+            ? style.outerStroke
+            : style.innerStroke;
+        ctx.beginPath();
         ctx.moveTo(cx + co * a, cy + si * a);
         ctx.lineTo(cx + co * b, cy + si * b);
+        ctx.stroke();
       }
-      ctx.stroke();
     }
     ctx.globalAlpha = 1;
   }
@@ -145,8 +160,12 @@ export function drawRing(
   ctx.lineJoin = "round";
   if (style.innerLine) {
     ctx.globalAlpha = 0.75;
+    ctx.strokeStyle = style.innerLineStroke;
     loop(-1);
     ctx.globalAlpha = 1;
   }
-  if (style.outerLine) loop(1);
+  if (style.outerLine) {
+    ctx.strokeStyle = style.outerLineStroke;
+    loop(1);
+  }
 }

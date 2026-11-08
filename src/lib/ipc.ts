@@ -119,6 +119,18 @@ export interface ScopeStyle {
   lineWidth: number;
 }
 
+/** A custom colour per component; `null` uses the palette. */
+export interface SceneColors {
+  bars: string | null;
+  outerLine: string | null;
+  innerLine: string | null;
+  outerBars: string | null;
+  innerBars: string | null;
+  spanBars: string | null;
+  baseCircle: string | null;
+  scope: string | null;
+}
+
 /** `Scene` v2 (crates/av-protocol/src/scene.rs). */
 export interface Scene {
   formatVersion: number;
@@ -133,6 +145,7 @@ export interface Scene {
   palette: string[];
   ring: Ring;
   scope: ScopeStyle;
+  colors: SceneColors;
 }
 
 export type SourceRequest =

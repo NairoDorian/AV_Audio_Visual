@@ -361,3 +361,17 @@ fn scene_v1_ring_booleans_migrate_to_components() {
     let outer_only = ring(false, false);
     assert!(outer_only.outer_line && !outer_only.inner_line);
 }
+
+#[test]
+fn component_colours_are_normalized_or_dropped() {
+    let l = load::<Scene>(
+        r##"{ "formatVersion": 2, "colors": { "outerLine": "#ABC", "scope": "#ff00ff80",
+             "spanBars": "red", "bars": null } }"##,
+    );
+    let c = &l.value.colors;
+    assert_eq!(c.outer_line.as_deref(), Some("#aabbcc"));
+    assert_eq!(c.scope.as_deref(), Some("#ff00ff80"));
+    assert_eq!(c.span_bars, None);
+    assert_eq!(c.bars, None);
+    assert!(l.report.normalized.iter().any(|n| n.contains("spanBars")));
+}

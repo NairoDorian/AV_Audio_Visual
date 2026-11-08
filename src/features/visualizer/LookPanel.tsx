@@ -2,7 +2,7 @@
 // controls over the preview's copy of the active scene. Preview-only until user scene files
 // exist (Phase 3): nothing here is persisted.
 import { For, Show } from "solid-js";
-import type { Scene } from "../../lib/ipc";
+import type { Scene, SceneColors } from "../../lib/ipc";
 
 type RingToggle = "outerLine" | "innerLine" | "outerBars" | "innerBars" | "spanBars" | "baseCircle";
 type ScopeToggle = "enabled" | "horizontalMirror" | "verticalMirror";
@@ -15,6 +15,26 @@ const RING_TOGGLES: ReadonlyArray<[RingToggle, string]> = [
   ["spanBars", "Spanning bars"],
   ["baseCircle", "Base circle"],
 ];
+
+type ColorKey = keyof SceneColors;
+
+/** Which colours apply to a style. */
+const RING_COLORS: ReadonlyArray<[ColorKey, string]> = [
+  ["outerLine", "Outer line"],
+  ["innerLine", "Inner line"],
+  ["outerBars", "Outer bars"],
+  ["innerBars", "Inner bars"],
+  ["spanBars", "Spanning bars"],
+  ["baseCircle", "Base circle"],
+  ["scope", "Raw audio"],
+];
+const BAR_COLORS: ReadonlyArray<[ColorKey, string]> = [
+  ["bars", "Bars"],
+  ["scope", "Raw audio"],
+];
+
+/** `#rrggbb` for the colour input (drops an alpha byte). */
+const rgb = (c: string | null, fallback: string) => (c ?? fallback).slice(0, 7);
 
 const SCOPE_TOGGLES: ReadonlyArray<[ScopeToggle, string]> = [
   ["enabled", "Raw audio scope"],
@@ -32,6 +52,14 @@ export default function LookPanel(props: {
   const scope = (patch: Partial<Scene["scope"]>) =>
     props.onUpdate((s) => ({ ...s, scope: { ...s.scope, ...patch } }));
   const concentric = () => props.scene.style === "concentric";
+  const color = (key: ColorKey, value: string | null) =>
+    props.onUpdate((s) => ({ ...s, colors: { ...s.colors, [key]: value } }));
+  const fallback = (key: ColorKey) =>
+    key === "baseCircle"
+      ? (props.scene.palette[0] ?? "#3d6bff")
+      : key === "scope"
+        ? (props.scene.palette.at(-1) ?? "#ff5ca8")
+        : (props.scene.palette[1] ?? props.scene.palette[0] ?? "#8a5cff");
 
   return (
     <section class="card form look">
@@ -139,6 +167,32 @@ export default function LookPanel(props: {
         />
         <output>{props.scene.scope.size.toFixed(2)}</output>
       </label>
+      <div class="colors">
+        <For each={concentric() ? RING_COLORS : BAR_COLORS}>
+          {([key, label]) => (
+            <div class="color-row">
+              <label class="check">
+                <input
+                  type="checkbox"
+                  checked={props.scene.colors[key] !== null}
+                  onChange={(e) =>
+                    color(key, e.currentTarget.checked ? rgb(null, fallback(key)) : null)
+                  }
+                />
+                <span>{label}</span>
+              </label>
+              <input
+                type="color"
+                aria-label={`${label} colour`}
+                disabled={props.scene.colors[key] === null}
+                value={rgb(props.scene.colors[key], fallback(key))}
+                onInput={(e) => color(key, e.currentTarget.value)}
+              />
+              <span class="muted small">{props.scene.colors[key] ?? "palette"}</span>
+            </div>
+          )}
+        </For>
+      </div>
       <p class="muted small">
         Preview only until scene files: traces = 1 x 2 (horizontal mirror) x 2 (vertical mirror) x
         copies, copy i rotated by i x 180 / copies degrees.

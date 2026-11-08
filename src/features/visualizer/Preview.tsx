@@ -38,8 +38,12 @@ export default function Preview(props: {
       baseCircle: true,
       barScale: 1,
       barSpacing: 1,
-      fill: "" as string | CanvasGradient,
-      base: "",
+      outerLineStroke: "" as string | CanvasGradient,
+      innerLineStroke: "" as string | CanvasGradient,
+      outerStroke: "" as string | CanvasGradient,
+      innerStroke: "" as string | CanvasGradient,
+      spanStroke: "" as string | CanvasGradient,
+      baseStroke: "" as string | CanvasGradient,
     };
     const scopeStyle = {
       horizontalMirror: false,
@@ -110,7 +114,8 @@ export default function Preview(props: {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const scope = scene?.scope;
       const wave = scope?.enabled ? frame.waveform : null;
-      const traceColor = scene?.palette.at(-1) ?? FALLBACK_PALETTE[2]!;
+      const traceColor = scene?.colors.scope ?? scene?.palette.at(-1) ?? FALLBACK_PALETTE[2]!;
+      if (scene?.colors.bars) ctx.fillStyle = scene.colors.bars;
       if (scene?.style === "concentric") {
         const ring = scene.ring;
         ringParams.bins = props.displayCount ?? ring.bins;
@@ -123,8 +128,13 @@ export default function Preview(props: {
         const cy = el.height / 2;
         Object.assign(ringStyle, ring);
         ringStyle.barSpacing = ring.barSpacing * dpr;
-        ringStyle.fill = fill;
-        ringStyle.base = scene.palette[0] ?? FALLBACK_PALETTE[0]!;
+        const col = scene.colors;
+        ringStyle.outerLineStroke = col.outerLine ?? fill;
+        ringStyle.innerLineStroke = col.innerLine ?? fill;
+        ringStyle.outerStroke = col.outerBars ?? fill;
+        ringStyle.innerStroke = col.innerBars ?? fill;
+        ringStyle.spanStroke = col.spanBars ?? fill;
+        ringStyle.baseStroke = col.baseCircle ?? scene.palette[0] ?? FALLBACK_PALETTE[0]!;
         drawRing(ctx, pooled, cx, cy, r, ringStyle);
         if (wave && scope) {
           const half = r * scope.size;

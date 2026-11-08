@@ -34,5 +34,15 @@
     "verticalMirror": false,
     "copies": 1,
     "lineWidth": 1.5
+  },
+  "colors": {
+    "bars": null,
+    "outerLine": null,
+    "innerLine": null,
+    "outerBars": null,
+    "innerBars": null,
+    "spanBars": null,
+    "baseCircle": null,
+    "scope": null
   }
 }

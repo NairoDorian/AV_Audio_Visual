@@ -76,6 +76,39 @@ impl Default for Ring {
     }
 }
 
+/// A custom colour per drawn component. `None` uses the palette (the gradient for bars and
+/// lines, the first stop for the base circle, the last stop for the scope). Colours are
+/// `#rrggbb` or `#rrggbbaa`; anything else is dropped back to the palette on load.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Colors {
+    /// Bars of the bar styles.
+    pub bars: Option<String>,
+    pub outer_line: Option<String>,
+    pub inner_line: Option<String>,
+    pub outer_bars: Option<String>,
+    pub inner_bars: Option<String>,
+    pub span_bars: Option<String>,
+    pub base_circle: Option<String>,
+    /// Raw audio scope traces.
+    pub scope: Option<String>,
+}
+
+impl Colors {
+    fn slots(&mut self) -> [(&'static str, &mut Option<String>); 8] {
+        [
+            ("bars", &mut self.bars),
+            ("outerLine", &mut self.outer_line),
+            ("innerLine", &mut self.inner_line),
+            ("outerBars", &mut self.outer_bars),
+            ("innerBars", &mut self.inner_bars),
+            ("spanBars", &mut self.span_bars),
+            ("baseCircle", &mut self.base_circle),
+            ("scope", &mut self.scope),
+        ]
+    }
+}
+
 /// The raw-audio scope (docs/super-fft.md section 4): a linear trace in the bar styles, traces
 /// inside the ring in the concentric style.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -129,6 +162,7 @@ pub struct Scene {
     pub palette: Vec<String>,
     pub ring: Ring,
     pub scope: ScopeStyle,
+    pub colors: Colors,
 }
 
 impl Default for Scene {
@@ -145,6 +179,7 @@ impl Default for Scene {
             palette: vec!["#3d6bff".into(), "#8a5cff".into(), "#ff5ca8".into()],
             ring: Ring::default(),
             scope: ScopeStyle::default(),
+            colors: Colors::default(),
         }
     }
 }
@@ -282,5 +317,17 @@ impl Versioned for Scene {
             notes.push("palette colours normalized".into());
         }
         self.palette = colors;
+        for (name, slot) in self.colors.slots() {
+            if let Some(c) = slot.as_deref() {
+                let fixed = normalize_color(c);
+                if fixed.as_deref() != Some(c) {
+                    notes.push(match &fixed {
+                        Some(_) => format!("colors.{name} normalized"),
+                        None => format!("colors.{name} was not a colour; palette used"),
+                    });
+                    *slot = fixed;
+                }
+            }
+        }
     }
 }
