@@ -82,6 +82,9 @@ function Slider(props: {
 export default function LookPanel(props: {
   scene: Scene;
   onUpdate: (update: (scene: Scene) => Scene) => void;
+  /** The scene is a built-in with saved edits. */
+  modified: boolean;
+  onReset: () => void;
 }) {
   const ring = (patch: Partial<Scene["ring"]>) =>
     props.onUpdate((s) => ({ ...s, ring: { ...s.ring, ...patch } }));
@@ -234,7 +237,16 @@ export default function LookPanel(props: {
           )}
         </For>
       </div>
-      <p class="muted small">Preview only until scenes can be saved as files.</p>
+      <div class="row look-foot">
+        <p class="muted small grow">
+          Changes are saved to this scene automatically and shown on every display that uses it.
+        </p>
+        <Show when={props.modified}>
+          <button type="button" onClick={props.onReset}>
+            Reset look to built-in
+          </button>
+        </Show>
+      </div>
     </section>
   );
 }

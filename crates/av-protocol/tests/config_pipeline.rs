@@ -49,7 +49,7 @@ fn corrupt_text_gives_defaults_and_asks_for_a_backup() {
 
 #[test]
 fn partial_store_keeps_what_it_has_and_fills_the_rest() {
-    let l = cfg(r#"{ "schemaVersion": 3, "analysis": { "outputBins": 64 } }"#);
+    let l = cfg(r#"{ "schemaVersion": 4, "analysis": { "outputBins": 64 } }"#);
     assert_eq!(l.value.analysis.output_bins, 64);
     assert_eq!(l.value.analysis.db_range, 80.0);
     assert_eq!(l.value.audio, AppConfig::default().audio);
@@ -141,7 +141,7 @@ fn a_newer_schema_keeps_known_fields_and_asks_for_a_backup() {
     let l = cfg(r#"{ "schemaVersion": 99, "analysis": { "outputBins": 32 }, "future": true }"#);
     assert_eq!(l.report.newer_version, Some(99));
     assert_eq!(l.value.analysis.output_bins, 32);
-    assert_eq!(l.value.schema_version, 3);
+    assert_eq!(l.value.schema_version, 4);
     assert!(l.report.needs_backup());
 }
 
@@ -191,7 +191,7 @@ fn schema_v1_migrates_presets_bands_and_db_bounds() {
         l.report.needs_backup(),
         "a migrated store keeps its v1 original"
     );
-    assert_eq!(l.value.schema_version, 3);
+    assert_eq!(l.value.schema_version, 4);
     assert_eq!((a.window_samples, a.hop_samples, a.layers), (2048, 512, 1));
     assert_eq!(a.scale, Scale::Mel);
     assert_eq!((a.log_floor_hz, a.display_max_hz), (40.0, 16_000.0));
@@ -374,4 +374,25 @@ fn component_colours_are_normalized_or_dropped() {
     assert_eq!(c.span_bars, None);
     assert_eq!(c.bars, None);
     assert!(l.report.normalized.iter().any(|n| n.contains("spanBars")));
+}
+
+#[test]
+fn schema_v3_overlay_starts_off_and_new_placements_are_filled() {
+    let l = cfg(r#"{ "schemaVersion": 3, "overlay": { "enabled": true, "fps": 90 } }"#);
+    assert_eq!(l.report.migrated_from, Some(3));
+    assert!(
+        !l.value.overlay.enabled,
+        "upgrading never opens a window unasked"
+    );
+    assert_eq!(l.value.overlay.fps, 90);
+    assert!(!l.value.background.enabled && !l.value.taskbar.enabled);
+}
+
+#[test]
+fn the_taskbar_strip_stays_on_the_bar() {
+    let l = cfg(
+        r#"{ "taskbar": { "length": 0.5, "offset": 0.9 }, "overlay": { "scene": "My Ring" } }"#,
+    );
+    assert!((l.value.taskbar.offset - 0.5).abs() < 1e-6);
+    assert_eq!(l.value.overlay.scene, "my-ring");
 }

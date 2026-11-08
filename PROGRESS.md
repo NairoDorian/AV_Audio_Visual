@@ -16,8 +16,8 @@ What is implemented versus planned, kept truthful (AGENTS.md section 8). Steps r
 | A6 DSP | Done | Analyzer: layered FFT in front of the FFT CHOP chain (6 windows, 7 scales, warp interpolation and aggregation, A/C/ITU-R 468, references, loudness, ballistics, spectral features) | Golden, layered and allocation gates; default p99 181 us parallel (`docs/performance.md`) |
 | A7 engine | Done | rtrb ring, symphonia file source, analysis worker, 64-slot seqlock ring, status snapshot, preview encoder | Bit-exact golden frames; no torn reads; zero allocations on the frame path |
 | A8 preview | Done | `get_frame` raw pulls, frame bus, preview canvas, demo track | Bus tests; manual run with `--demo` (moving bars captured) |
-| A9 headless render | Not started | wgpu instanced bars, offscreen target, premultiplied invariant | - |
-| A10 platform | Not started | Monitor ids, DPI, `SurfaceHost` state machine with a fake host | - |
+| A9 render | Done | `av-render`: scene + frame -> premultiplied triangles (bars, ring components, scope, custom colours), DX12 composition-visual swapchain, non-sRGB UNORM, pending-first targets, offscreen readback | GPU gate on Intel Iris Xe (DX12): rgb <= a on every pixel, clear background, deterministic |
+| A10 platform | Done (Windows) | `av-platform`: monitors with stable device ids and DPI, taskbar position, anchor and taskbar-zone geometry (tested), native host thread with overlay, taskbar-strip and wallpaper windows, emergency hide for the panic hook | Geometry tests; manual on Windows 11: all three displays running on DX12 with premultiplied alpha, overlay drawn click-through over a borderless game |
 
 ## Analysis goal: Super FFT (ADR-020, docs/super-fft.md)
 
@@ -39,5 +39,6 @@ What is implemented versus planned, kept truthful (AGENTS.md section 8). Steps r
 - Analysis runs at the source rate; resampling to 48 kHz arrives with live capture.
 - Timestamps use the sample-count clock; device-clock anchoring arrives with WASAPI.
 - The analysis worker polls every quarter hop while active; deep-idle parking is Phase 1B.6.
-- Scene editing is not in the Studio yet: the display bar count is a preview-only control.
+- The display bar count is a preview-only control; Look edits are saved to the scene.
+- Displays: no layout edit mode or global hotkey/tray escape hatch yet; the taskbar strip is not avoided on an auto-hiding bar (it reports why); wallpaper visual verification on the 24H2 layout is pending (the desktop was covered during the test); Windows only.
 - Linux and macOS: compile and unit tests pass in CI; nothing has been run interactively there.

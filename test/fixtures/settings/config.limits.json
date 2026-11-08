@@ -168,6 +168,48 @@
     "path": "analysis.layerThreads"
   },
   {
+    "default": 60.0,
+    "integer": true,
+    "max": 240.0,
+    "min": 10.0,
+    "path": "overlay.fps"
+  },
+  {
+    "default": 30.0,
+    "integer": true,
+    "max": 240.0,
+    "min": 5.0,
+    "path": "background.fps"
+  },
+  {
+    "default": 1.0,
+    "integer": false,
+    "max": 1.0,
+    "min": 0.1,
+    "path": "background.scale"
+  },
+  {
+    "default": 0.25,
+    "integer": false,
+    "max": 1.0,
+    "min": 0.02,
+    "path": "taskbar.length"
+  },
+  {
+    "default": 0.6000000238418579,
+    "integer": false,
+    "max": 1.0,
+    "min": 0.0,
+    "path": "taskbar.offset"
+  },
+  {
+    "default": 60.0,
+    "integer": true,
+    "max": 240.0,
+    "min": 10.0,
+    "path": "taskbar.fps"
+  },
+  {
     "default": 0.0,
     "integer": false,
     "max": 400.0,

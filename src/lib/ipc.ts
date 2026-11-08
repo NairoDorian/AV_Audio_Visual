@@ -74,11 +74,79 @@ export interface PresetInfo {
   builtin: boolean;
 }
 
+export type AnchorPoint =
+  | "topLeft"
+  | "topCenter"
+  | "topRight"
+  | "centerLeft"
+  | "center"
+  | "centerRight"
+  | "bottomLeft"
+  | "bottomCenter"
+  | "bottomRight"
+  | "free";
+
+export interface Anchor {
+  monitor: string | null;
+  frame: "workArea" | "fullMonitor" | "virtualDesktop" | "taskbarBand";
+  anchor: AnchorPoint;
+  offsetDip: [number, number];
+  sizeDip: [number, number];
+  orientation: "horizontal" | "vertical";
+}
+
+export interface OverlayConfig {
+  enabled: boolean;
+  input: "locked" | "edit";
+  captureVisible: boolean;
+  anchor: Anchor;
+  scene: string;
+  fps: number;
+}
+
+export interface BackgroundConfig {
+  enabled: boolean;
+  monitor: string | null;
+  scene: string;
+  fps: number;
+  scale: number;
+}
+
+export type TaskbarZone = "start" | "center" | "end" | "custom";
+
+export interface TaskbarConfig {
+  enabled: boolean;
+  zone: TaskbarZone;
+  length: number;
+  offset: number;
+  marginDip: number;
+  scene: string;
+  fps: number;
+}
+
 export interface AppConfig {
   schemaVersion: number;
   analysis: AnalysisConfig;
+  overlay: OverlayConfig;
+  background: BackgroundConfig;
+  taskbar: TaskbarConfig;
   scene: string;
   [key: string]: unknown;
+}
+
+export interface MonitorInfo {
+  id: string;
+  width: number;
+  height: number;
+  scale: number;
+  primary: boolean;
+}
+
+export interface DisplayState {
+  placement: "background" | "taskbar" | "overlay";
+  state: string;
+  rect: [number, number, number, number];
+  fps: number;
 }
 
 export interface LoadReport {
@@ -214,6 +282,11 @@ export const stopSource = () => invoke<void>("stop_source");
 export const getAudioStatus = () => invoke<AudioStatus>("get_audio_status");
 export const listScenes = () => invoke<Scene[]>("list_scenes");
 export const getActiveScene = () => invoke<Scene>("get_active_scene");
+export const saveScene = (scene: Scene) => invoke<Scene>("save_scene", { scene });
+export const resetScene = (id: string) => invoke<Scene>("reset_scene", { id });
+export const sceneIsModified = (id: string) => invoke<boolean>("scene_is_modified", { id });
+export const listMonitors = () => invoke<MonitorInfo[]>("list_monitors");
+export const getDisplayStates = () => invoke<DisplayState[]>("get_display_states");
 export const listPresets = () => invoke<PresetInfo[]>("list_presets");
 export const savePreset = (name: string) => invoke<PresetInfo>("save_preset", { name });
 export const applyPreset = (id: string) => invoke<Applied>("apply_preset", { id });

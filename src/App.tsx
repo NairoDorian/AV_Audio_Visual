@@ -2,6 +2,7 @@ import { createSignal, For, Show, Match, Switch, onSettled } from "solid-js";
 import Preview from "./features/visualizer/Preview";
 import AnalysisPanel from "./features/analysis/AnalysisPanel";
 import LookPanel from "./features/visualizer/LookPanel";
+import DisplaysPanel from "./features/displays/DisplaysPanel";
 import { LOOK_HELP } from "./features/visualizer/help";
 import InfoTip from "./components/InfoTip";
 import { DIAG_HELP } from "./features/diagnostics/help";
@@ -29,6 +30,9 @@ import {
   stopSource,
   getActiveScene,
   listScenes,
+  resetScene,
+  saveScene,
+  sceneIsModified,
   type AppConfig,
   type AppInfo,
   type AudioStatus,
@@ -41,7 +45,11 @@ type SectionId = "visualizer" | "audio" | "displays" | "performance" | "diagnost
 const SECTIONS: ReadonlyArray<{ id: SectionId; label: string; blurb: string }> = [
   { id: "visualizer", label: "Visualizer", blurb: "Live preview and analysis settings." },
   { id: "audio", label: "Audio", blurb: "Source and capture status." },
-  { id: "displays", label: "Displays", blurb: "Background, taskbar and overlay placements." },
+  {
+    id: "displays",
+    label: "Displays",
+    blurb: "Put the visual on your wallpaper, over the taskbar, or in a floating overlay.",
+  },
   { id: "performance", label: "Performance", blurb: "Frame rate and idle policy." },
   { id: "diagnostics", label: "Diagnostics", blurb: "Counters, timings and build facts." },
 ];
@@ -88,10 +96,7 @@ export default function App() {
     getConfig().then(setConfig, report);
     getDefaults().then(setDefaults, report);
     listScenes().then(setScenes, report);
-    getActiveScene().then((s) => {
-      setScene(s);
-      setDisplayCount(s.style === "concentric" ? s.ring.bins : s.barCount);
-    }, report);
+    getActiveScene().then(loadedScene, report);
     const poll = () => getAudioStatus().then(setStatus, report);
     void poll();
     const timer = setInterval(poll, STATUS_POLL_MS);
@@ -118,9 +123,48 @@ export default function App() {
     try {
       const applied = await patchConfig({ scene: id });
       setConfig(applied.config);
-      const s = await getActiveScene();
-      setScene(s);
-      setDisplayCount(s.style === "concentric" ? s.ring.bins : s.barCount);
+      loadedScene(await getActiveScene());
+    } catch (e) {
+      report(e);
+    }
+  };
+
+  // Look edits are saved to the scene store 400 ms after the last change, so the native
+  // displays follow them; the preview shows them immediately.
+  const [sceneModified, setSceneModified] = createSignal(false);
+  let saveTimer = 0;
+  const updateScene = (update: (s: Scene) => Scene) => {
+    setScene((prev) => (prev ? update(prev) : prev));
+    clearTimeout(saveTimer);
+    saveTimer = window.setTimeout(() => {
+      const s = scene();
+      if (!s) return;
+      saveScene(s).then(() => setSceneModified(true), report);
+    }, 400);
+  };
+  const resetLook = async () => {
+    const s = scene();
+    if (!s) return;
+    clearTimeout(saveTimer);
+    try {
+      const fresh = await resetScene(s.id);
+      setScene(fresh);
+      setSceneModified(false);
+      setDisplayCount(fresh.style === "concentric" ? fresh.ring.bins : fresh.barCount);
+    } catch (e) {
+      report(e);
+    }
+  };
+  const loadedScene = (s: Scene) => {
+    setScene(s);
+    setDisplayCount(s.style === "concentric" ? s.ring.bins : s.barCount);
+    sceneIsModified(s.id).then(setSceneModified, () => setSceneModified(false));
+  };
+
+  const editConfig = async (patch: Record<string, unknown>) => {
+    try {
+      const applied = await patchConfig(patch);
+      setConfig(applied.config);
     } catch (e) {
       report(e);
     }
@@ -236,7 +280,9 @@ export default function App() {
                     {(s) => (
                       <LookPanel
                         scene={s()}
-                        onUpdate={(update) => setScene((prev) => (prev ? update(prev) : prev))}
+                        onUpdate={updateScene}
+                        modified={sceneModified()}
+                        onReset={resetLook}
                       />
                     )}
                   </Show>
@@ -255,6 +301,19 @@ export default function App() {
                     <p class="muted small">{notice()}</p>
                   </Show>
                 </>
+              )}
+            </Show>
+          </Match>
+
+          <Match when={section() === "displays"}>
+            <Show when={config()}>
+              {(c) => (
+                <DisplaysPanel
+                  config={c()}
+                  scenes={scenes()}
+                  onPatch={editConfig}
+                  onError={report}
+                />
               )}
             </Show>
           </Match>

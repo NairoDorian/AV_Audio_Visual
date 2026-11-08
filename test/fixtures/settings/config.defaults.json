@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "audio": {
     "source": "systemOutput",
     "deviceId": null,
@@ -60,7 +60,7 @@
     "deepIdleAfterS": 30.0
   },
   "overlay": {
-    "enabled": true,
+    "enabled": false,
     "input": "locked",
     "captureVisible": true,
     "anchor": {
@@ -76,7 +76,25 @@
         160.0
       ],
       "orientation": "horizontal"
-    }
+    },
+    "scene": "",
+    "fps": 60
+  },
+  "background": {
+    "enabled": false,
+    "monitor": null,
+    "scene": "",
+    "fps": 30,
+    "scale": 1.0
+  },
+  "taskbar": {
+    "enabled": false,
+    "zone": "start",
+    "length": 0.25,
+    "offset": 0.6,
+    "marginDip": 4.0,
+    "scene": "bars",
+    "fps": 60
   },
   "scene": "bars"
 }

@@ -7,12 +7,14 @@ mod audio;
 mod cli;
 mod commands;
 mod config_store;
+mod displays;
 mod identity;
 mod logging;
 mod panic;
 mod paths;
 mod preflight;
 mod presets;
+mod scenes;
 mod startup;
 
 pub use startup::run;

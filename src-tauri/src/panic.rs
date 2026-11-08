@@ -35,12 +35,10 @@ pub fn register_app(handle: tauri::AppHandle) {
     let _ = APP.set(handle);
 }
 
-/// No visualizer hosts exist yet (Phase 1B). When they do, this sends `HideAll` to the host
-/// pump and destroys native host windows directly if the pump is dead.
+/// Hides every native display window from the panicking thread: a transparent topmost window
+/// that outlives its renderer would cover the desktop (invariant 15). Never blocks.
 fn hide_all_surfaces() {
-    if APP.get().is_some() {
-        tracing::warn!(target: "av_app::panic", "no visualizer surfaces registered yet");
-    }
+    av_platform::emergency_hide_all();
 }
 
 #[cfg(test)]

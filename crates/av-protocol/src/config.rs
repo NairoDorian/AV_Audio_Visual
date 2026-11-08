@@ -4,6 +4,9 @@
 //! Every numeric field has a row in `LIMITS` (clamp + parity fixture). Adding a field means:
 //! a default, a limit row if numeric, and a migration if an old field moves.
 //!
+//! Schema v4 (2026-11-08) adds the Background and Taskbar placements and a scene and frame-rate
+//! cap per placement; `overlay.enabled` starts off ([`migrate_v3`]).
+//!
 //! Schema v3 (2026-11-08) follows FFT CHOP v2.13's Multi-FFT controls: `layerRefresh` and
 //! `layerThreads` (which replaces `parallelLayers`, [`migrate_v2`]).
 //!
@@ -18,7 +21,7 @@ use serde_json::{Map, Value};
 use crate::pipeline::{Limit, Migration, Versioned, limit, slugify};
 use crate::placement::{Anchor, InputMode};
 
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// Largest analysis FFT (zero-padded transform length).
 pub const MAX_FFT_SIZE: u32 = 131_072;
@@ -40,6 +43,8 @@ pub struct AppConfig {
     pub analysis: AnalysisConfig,
     pub performance: PerformanceConfig,
     pub overlay: OverlayConfig,
+    pub background: BackgroundConfig,
+    pub taskbar: TaskbarConfig,
     /// Slug of the active scene.
     pub scene: String,
 }
@@ -52,6 +57,8 @@ impl Default for AppConfig {
             analysis: AnalysisConfig::default(),
             performance: PerformanceConfig::default(),
             overlay: OverlayConfig::default(),
+            background: BackgroundConfig::default(),
+            taskbar: TaskbarConfig::default(),
             scene: "bars".into(),
         }
     }
@@ -446,15 +453,93 @@ pub struct OverlayConfig {
     /// Visible to screen capture (default) or excluded (`WDA_EXCLUDEFROMCAPTURE`).
     pub capture_visible: bool,
     pub anchor: Anchor,
+    /// Scene slug; empty = the active scene.
+    pub scene: String,
+    pub fps: u32,
 }
 
 impl Default for OverlayConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             input: InputMode::Locked,
             capture_visible: true,
             anchor: Anchor::default(),
+            scene: String::new(),
+            fps: 60,
+        }
+    }
+}
+
+/// The visual behind the desktop icons (blueprint 10.2).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundConfig {
+    pub enabled: bool,
+    /// Stable monitor id; `None` = the primary monitor.
+    pub monitor: Option<String>,
+    /// Scene slug; empty = the active scene.
+    pub scene: String,
+    /// Lower than the overlay by default: the wallpaper is ambient.
+    pub fps: u32,
+    /// Size of the visual as a fraction of the monitor (centred), so a ring stays round.
+    pub scale: f32,
+}
+
+impl Default for BackgroundConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            monitor: None,
+            scene: String::new(),
+            fps: 30,
+            scale: 1.0,
+        }
+    }
+}
+
+/// Which part of the taskbar the strip covers.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TaskbarZone {
+    /// The start of the bar (left on a bottom bar; usually empty on Windows 11).
+    #[default]
+    Start,
+    /// Centred.
+    Center,
+    /// The end of the bar (next to the clock).
+    End,
+    /// `offset` from the start, as a fraction of the bar's length.
+    Custom,
+}
+
+/// A strip over a zone of the taskbar (blueprint 10.2).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskbarConfig {
+    pub enabled: bool,
+    pub zone: TaskbarZone,
+    /// Length of the strip as a fraction of the bar's length.
+    pub length: f32,
+    /// Start of the strip as a fraction of the bar's length (Custom zone).
+    pub offset: f32,
+    /// Inset from the bar's edges, DIPs (keeps the visual off the icons' hover glow).
+    pub margin_dip: f32,
+    /// Scene slug; empty = the active scene.
+    pub scene: String,
+    pub fps: u32,
+}
+
+impl Default for TaskbarConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            zone: TaskbarZone::Start,
+            length: 0.25,
+            offset: 0.6,
+            margin_dip: 4.0,
+            scene: "bars".into(),
+            fps: 60,
         }
     }
 }
@@ -495,7 +580,20 @@ pub(crate) use analysis_limits;
 
 static ANALYSIS_LIMITS: [Limit<AppConfig>; 24] = analysis_limits!(AppConfig, analysis);
 
-static OTHER_LIMITS: [Limit<AppConfig>; 7] = [
+static OTHER_LIMITS: [Limit<AppConfig>; 13] = [
+    limit!(AppConfig, "overlay.fps", 10, 240, int, overlay.fps),
+    limit!(AppConfig, "background.fps", 5, 240, int, background.fps),
+    limit!(
+        AppConfig,
+        "background.scale",
+        0.1,
+        1,
+        float,
+        background.scale
+    ),
+    limit!(AppConfig, "taskbar.length", 0.02, 1, float, taskbar.length),
+    limit!(AppConfig, "taskbar.offset", 0, 1, float, taskbar.offset),
+    limit!(AppConfig, "taskbar.fps", 10, 240, int, taskbar.fps),
     limit!(
         AppConfig,
         "audio.avOffsetMs",
@@ -639,6 +737,14 @@ pub fn migrate_v1(doc: &mut Map<String, Value>) {
     a.remove("zeroPad");
 }
 
+/// v3 -> v4: the overlay did nothing before v4, so a stored `enabled: true` was never a choice;
+/// it starts off so upgrading never puts a window on the desktop unasked.
+pub fn migrate_v3(doc: &mut Map<String, Value>) {
+    if let Some(Value::Object(o)) = doc.get_mut("overlay") {
+        o.insert("enabled".into(), false.into());
+    }
+}
+
 /// v2 -> v3: `parallelLayers` (auto / always / never) becomes `layerThreads` (0 = auto, one
 /// thread per layer for "always", 1 for "never").
 pub fn migrate_v2(doc: &mut Map<String, Value>) {
@@ -662,6 +768,10 @@ static MIGRATIONS: &[Migration] = &[
         from: 2,
         apply: migrate_v2,
     },
+    Migration {
+        from: 3,
+        apply: migrate_v3,
+    },
 ];
 
 impl Versioned for AppConfig {
@@ -678,6 +788,29 @@ impl Versioned for AppConfig {
 
     fn normalize(&mut self, notes: &mut Vec<String>) {
         normalize_analysis(&mut self.analysis, notes);
+        for (name, scene) in [
+            ("overlay", &mut self.overlay.scene),
+            ("background", &mut self.background.scene),
+            ("taskbar", &mut self.taskbar.scene),
+        ] {
+            if !scene.is_empty() {
+                let slug = slugify(scene, "");
+                if slug != *scene {
+                    notes.push(format!("{name}.scene normalized to {slug:?}"));
+                    *scene = slug;
+                }
+            }
+        }
+        if self.taskbar.offset + self.taskbar.length > 1.0 {
+            self.taskbar.offset = (1.0 - self.taskbar.length).max(0.0);
+            notes.push("taskbar.offset moved so the strip stays on the bar".into());
+        }
+        if let Some(id) = &self.background.monitor
+            && id.trim().is_empty()
+        {
+            self.background.monitor = None;
+            notes.push("background.monitor empty -> the primary monitor".into());
+        }
         let slug = slugify(&self.scene, "bars");
         if slug != self.scene {
             notes.push(format!("scene id {:?} normalized to {slug:?}", self.scene));

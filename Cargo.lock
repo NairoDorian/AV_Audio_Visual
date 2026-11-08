@@ -210,6 +210,8 @@ name = "av-platform"
 version = "0.0.1"
 dependencies = [
  "av-protocol",
+ "raw-window-handle",
+ "windows",
 ]
 
 [[package]]

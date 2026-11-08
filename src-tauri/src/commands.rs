@@ -3,14 +3,16 @@
 //! Typed bindings (ADR-014) arrive in Track A step A3; until then the TypeScript side mirrors
 //! these shapes by hand in `src/lib/ipc.ts`.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use av_protocol::{AppConfig, Report, Scene};
 use serde::Serialize;
 
 use crate::audio::{AudioService, AudioStatus, SourceInfo, SourceRequest};
 use crate::config_store::ConfigStore;
+use crate::displays::{DisplayState, Displays, Intent, Placement};
 use crate::presets::{PresetInfo, PresetStore};
+use crate::scenes::SceneStore;
 
 /// Identity and build facts shown in the Studio diagnostics section.
 #[derive(Debug, Clone, Serialize)]
@@ -61,14 +63,49 @@ pub struct Applied {
 pub fn patch_config(
     store: tauri::State<'_, Arc<ConfigStore>>,
     audio: tauri::State<'_, Arc<AudioService>>,
+    displays: tauri::State<'_, Arc<Mutex<Displays>>>,
+    scenes: tauri::State<'_, Arc<SceneStore>>,
     patch: serde_json::Value,
 ) -> Applied {
+    apply_patch(&store, &audio, &displays, &scenes, &patch)
+}
+
+fn apply_patch(
+    store: &ConfigStore,
+    audio: &AudioService,
+    displays: &Mutex<Displays>,
+    scenes: &SceneStore,
+    patch: &serde_json::Value,
+) -> Applied {
     let before = store.get();
-    let (config, report) = store.patch(&patch);
+    let (config, report) = store.patch(patch);
     if config.analysis != before.analysis {
         audio.reconfigure(&config.analysis);
     }
+    if config.overlay != before.overlay
+        || config.background != before.background
+        || config.taskbar != before.taskbar
+        || config.scene != before.scene
+    {
+        apply_displays(displays, &config, scenes);
+    }
     Applied { config, report }
+}
+
+/// Sends the displays what the config enables, each with its resolved scene.
+pub fn apply_displays(displays: &Mutex<Displays>, config: &AppConfig, scenes: &SceneStore) {
+    let pick = |id: &str| scenes.get(if id.is_empty() { &config.scene } else { id });
+    let intent = Intent {
+        config: config.clone(),
+        scenes: vec![
+            (Placement::Background, pick(&config.background.scene)),
+            (Placement::Taskbar, pick(&config.taskbar.scene)),
+            (Placement::Overlay, pick(&config.overlay.scene)),
+        ],
+    };
+    if let Ok(d) = displays.lock() {
+        d.apply(intent);
+    }
 }
 
 /// Starts the demo track or an audio file, replacing the current source.
@@ -107,10 +144,76 @@ pub async fn get_frame(
     ))
 }
 
-/// Built-in scenes (generated in Rust; user scene files arrive in Phase 3).
+/// Every scene: the built-ins (with any saved edit) and the user's own.
 #[tauri::command]
-pub fn list_scenes() -> Vec<Scene> {
-    av_protocol::scene::builtin_scenes()
+pub fn list_scenes(scenes: tauri::State<'_, Arc<SceneStore>>) -> Vec<Scene> {
+    scenes.list()
+}
+
+/// Saves a scene (an edited built-in keeps its id) and redraws the displays that use it.
+#[tauri::command]
+pub fn save_scene(
+    store: tauri::State<'_, Arc<ConfigStore>>,
+    scenes: tauri::State<'_, Arc<SceneStore>>,
+    displays: tauri::State<'_, Arc<Mutex<Displays>>>,
+    scene: Scene,
+) -> Result<Scene, String> {
+    let saved = scenes.save(&scene)?;
+    apply_displays(&displays, &store.get(), &scenes);
+    Ok(saved)
+}
+
+/// Deletes a saved scene: an edited built-in returns to its original look.
+#[tauri::command]
+pub fn reset_scene(
+    store: tauri::State<'_, Arc<ConfigStore>>,
+    scenes: tauri::State<'_, Arc<SceneStore>>,
+    displays: tauri::State<'_, Arc<Mutex<Displays>>>,
+    id: String,
+) -> Result<Scene, String> {
+    scenes.reset(&id)?;
+    apply_displays(&displays, &store.get(), &scenes);
+    Ok(scenes.get(&id))
+}
+
+/// True when `id` is a built-in scene with saved edits (the Studio offers to reset it).
+#[tauri::command]
+pub fn scene_is_modified(scenes: tauri::State<'_, Arc<SceneStore>>, id: String) -> bool {
+    scenes.is_modified(&id)
+}
+
+/// A monitor for the Studio's pickers.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorInfo {
+    pub id: String,
+    pub width: i32,
+    pub height: i32,
+    pub scale: f32,
+    pub primary: bool,
+}
+
+/// The connected monitors (stable ids). Async: it waits on the host thread.
+#[tauri::command]
+pub async fn list_monitors() -> Result<Vec<MonitorInfo>, String> {
+    let hosts = av_platform::Hosts::start()?;
+    Ok(hosts
+        .monitors()
+        .into_iter()
+        .map(|m| MonitorInfo {
+            id: m.id,
+            width: m.rect.w,
+            height: m.rect.h,
+            scale: m.scale,
+            primary: m.primary,
+        })
+        .collect())
+}
+
+/// What each enabled display is doing (running, starting, or why it failed).
+#[tauri::command]
+pub fn get_display_states(displays: tauri::State<'_, Arc<Mutex<Displays>>>) -> Vec<DisplayState> {
+    displays.lock().map(|d| d.states()).unwrap_or_default()
 }
 
 /// The FFT CHOP's Reset: clears the filter, ballistics, AGC and feature state.
@@ -142,14 +245,18 @@ pub fn apply_preset(
     store: tauri::State<'_, Arc<ConfigStore>>,
     audio: tauri::State<'_, Arc<AudioService>>,
     presets: tauri::State<'_, Arc<PresetStore>>,
+    displays: tauri::State<'_, Arc<Mutex<Displays>>>,
+    scenes: tauri::State<'_, Arc<SceneStore>>,
     id: String,
 ) -> Result<Applied, String> {
     let preset = presets.get(&id).ok_or("no such preset")?;
     let analysis = serde_json::to_value(&preset.analysis).map_err(|e| e.to_string())?;
-    Ok(patch_config(
-        store,
-        audio,
-        serde_json::json!({ "analysis": analysis }),
+    Ok(apply_patch(
+        &store,
+        &audio,
+        &displays,
+        &scenes,
+        &serde_json::json!({ "analysis": analysis }),
     ))
 }
 
@@ -163,6 +270,9 @@ pub fn delete_preset(
 
 /// The scene the config selects, falling back to the default scene.
 #[tauri::command]
-pub fn get_active_scene(store: tauri::State<'_, Arc<ConfigStore>>) -> Scene {
-    av_protocol::scene::builtin(&store.get().scene)
+pub fn get_active_scene(
+    store: tauri::State<'_, Arc<ConfigStore>>,
+    scenes: tauri::State<'_, Arc<SceneStore>>,
+) -> Scene {
+    scenes.get(&store.get().scene)
 }

@@ -424,3 +424,38 @@ button.reset:hover {
   gap: 6px;
   cursor: pointer;
 }
+
+.display-card .params.inactive {
+  opacity: 0.5;
+}
+
+.display-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.display-head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.display-state {
+  margin-left: auto;
+  color: var(--muted);
+  font: 12px var(--mono);
+}
+
+.display-state.ok {
+  color: #2fa86b;
+}
+
+.display-state.bad {
+  color: #d64545;
+}
+
+.look-foot {
+  align-items: center;
+  margin-top: 12px;
+}

@@ -211,6 +211,11 @@ impl AudioService {
         }
     }
 
+    /// The running engine's frame reader (the native displays read the slot ring in place).
+    pub fn reader(&self) -> Option<av_engine::FrameReader> {
+        lock(&self.active).as_ref().map(|a| a.engine.reader())
+    }
+
     /// Wire bytes for the preview: the newest frame, or a header-only reply.
     pub fn frame(&self, known: Option<u32>, want_bins: bool) -> Vec<u8> {
         let reader = lock(&self.active).as_ref().map(|a| a.engine.reader());

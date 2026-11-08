@@ -4,8 +4,8 @@
 //! A failure before step 8 may print and exit. A failure after a full-desktop window exists must
 //! use the panic/cleanup path.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, Mutex};
 
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
@@ -116,14 +116,23 @@ pub fn run() {
     };
 
     let presets = Arc::new(crate::presets::PresetStore::new(&dirs.root));
+    let scenes = Arc::new(crate::scenes::SceneStore::new(&dirs.root));
     let audio = Arc::new(AudioService::default());
+    let frames_from = audio.clone();
+    let displays = Arc::new(Mutex::new(crate::displays::Displays::start(Arc::new(
+        move || frames_from.reader(),
+    ))));
     let (store_for_setup, audio_for_setup) = (store.clone(), audio.clone());
+    let (scenes_for_setup, displays_for_setup) = (scenes.clone(), displays.clone());
+    let displays_for_exit = displays.clone();
 
     let app = tauri::Builder::default()
         .runtime(tauri_runtime_wry::Wry::default())
         .manage(store.clone())
         .manage(audio.clone())
         .manage(presets)
+        .manage(scenes)
+        .manage(displays)
         .invoke_handler(tauri::generate_handler![
             commands::get_app_info,
             commands::get_config,
@@ -139,7 +148,12 @@ pub fn run() {
             commands::save_preset,
             commands::apply_preset,
             commands::delete_preset,
-            commands::reset_analysis
+            commands::reset_analysis,
+            commands::save_scene,
+            commands::reset_scene,
+            commands::list_monitors,
+            commands::get_display_states,
+            commands::scene_is_modified
         ])
         .setup(move |app| {
             // 7. Let the panic hook reach the app.
@@ -166,6 +180,12 @@ pub fn run() {
                     tracing::warn!(target: "av_app::startup", "startup source failed: {e}");
                 }
             }
+            // The native displays the config enables (each shown after its first frame).
+            commands::apply_displays(
+                &displays_for_setup,
+                &store_for_setup.get(),
+                &scenes_for_setup,
+            );
             tracing::info!(target: "av_app::startup", "startup complete");
             Ok(())
         })
@@ -181,7 +201,11 @@ pub fn run() {
     };
     app.run(move |_handle, event| {
         if let tauri::RunEvent::Exit = event {
-            // Shutdown order (blueprint 4.3): stop capture and analysis, then flush config.
+            // Shutdown order (blueprint 4.3): hide and destroy the displays, stop capture and
+            // analysis, then flush config.
+            if let Ok(mut d) = displays_for_exit.lock() {
+                d.stop();
+            }
             audio.stop();
             store.flush();
             tracing::info!(target: "av_app::startup", "exit");
